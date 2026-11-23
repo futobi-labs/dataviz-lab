@@ -149,7 +149,7 @@
   Lab.width = function (el) {
     const node = typeof el === "string" ? document.querySelector(el) : el;
     const cs = getComputedStyle(node);
-    return node.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    return node.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
   };
   /** Re-run fn on resize (debounced), and once now. */
   Lab.responsive = function (fn) {

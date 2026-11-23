@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edward Tufte · Data Viz Lab</title>
+<meta name="description" content="Sparklines, slopegraphs, range-frames and small multiples in Edward Tufte's tradition.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  body.tufte svg text { font-family: var(--serif); }
+  .back { margin: 0 0 1.4rem; font-size: 0.92rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  body.tufte .card .thumb { background: var(--surface-1); }
+  body.tufte .card h3 { font-size: 1.15rem; }
+  .commit { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.4rem 2.5rem; margin-top: 0.6rem; }
+  .commit p { margin: 0.35rem 0; color: var(--text-secondary); font-size: 1rem; }
+  .commit em { color: var(--text-primary); }
+</style>
+</head>
+<body class="tufte">
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/" aria-current="true">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="../">← Data Viz Lab</a></p>
+  <p class="kicker">Edward Tufte</p>
+  <h1>Edward Tufte</h1>
+  <p class="lede">Ink and paper, even on a screen. These pages work through the forms Tufte argued for across four books, with seeded data so every reload is the same evidence, and with notes on where the doctrine holds and where I would push back.</p>
+
+  <div class="cards">
+    <a class="card" href="sparklines.html">
+      <div class="thumb" id="t-spark" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Sparklines</h3>
+        <p>Word-sized graphics in running prose, a dense table with own-range and common scales, and win-loss sparkbars for a season.</p>
+      </div>
+    </a>
+    <a class="card" href="slopegraph.html">
+      <div class="thumb" id="t-slope" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Slopegraph</h3>
+        <p>A city budget, two fiscal years, fifteen departments. Label relaxation, crossing lines in accent, and a values or ranks toggle.</p>
+      </div>
+    </a>
+    <a class="card" href="small-multiples.html">
+      <div class="thumb" id="t-sm" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Small multiples</h3>
+        <p>Anscombe's quartet with range-frames, 24 climates on one shared scale, and a dot-dash plot that uses its frame as data.</p>
+      </div>
+    </a>
+  </div>
+
+  <h2>The commitments</h2>
+  <div class="commit">
+    <p><em>Data-ink.</em> Every drop of ink should present data or be erased. The ratio is a direction to travel, not a score to maximize; a few gridlines that speed lookup have earned their place.</p>
+    <p><em>Small multiples.</em> Repeat one design across slices on shared scales so comparisons happen within the eyespan, without memory or interaction.</p>
+    <p><em>Integration of text and graphics.</em> Words, numbers and images belong together. Labels sit on the data, explanation sits beside it, and the legend is a last resort.</p>
+    <p><em>Sparklines.</em> Intense, simple, word-sized. The context supplies the axes, so the graphic can shrink to the size of the number it replaces.</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  function svg(id) {
+    const el = document.getElementById(id);
+    const w = el.clientWidth || 300, h = el.clientHeight || 140;
+    el.innerHTML = "";
+    return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
+  }
+
+  function draw() {
+    // Sparklines: three lines of "text" with a sparkline set into the middle one.
+    (function () {
+      const { s, w, h } = svg("t-spark");
+      const rand = Lab.rng(11);
+      const lineY = [h / 2 - 30, h / 2, h / 2 + 30], x0 = 22, x1 = w - 22;
+      const bar = (x, y, len) => s.append("rect").attr("x", x).attr("y", y - 3).attr("width", Math.max(0, len)).attr("height", 6).attr("rx", 3).style("fill", "var(--grid)");
+      bar(x0, lineY[0], x1 - x0); bar(x0, lineY[2], (x1 - x0) * 0.62);
+      const sw = Math.min(110, (x1 - x0) * 0.42), sx = x0 + (x1 - x0) * 0.3;
+      bar(x0, lineY[1], sx - x0 - 8);
+      const data = Lab.walk(rand, 60, 50, 0.003, 0.04);
+      const x = d3.scaleLinear([0, data.length - 1], [sx, sx + sw]), y = d3.scaleLinear(d3.extent(data), [lineY[1] + 8, lineY[1] - 8]);
+      s.append("path").attr("d", d3.line((d, i) => x(i), y)(data)).style("fill", "none").style("stroke", "var(--text-secondary)").style("stroke-width", 1.1);
+      [d3.minIndex(data), d3.maxIndex(data)].forEach((i) => s.append("circle").attr("cx", x(i)).attr("cy", y(data[i])).attr("r", 2).style("fill", "var(--series-1)"));
+      s.append("circle").attr("cx", x(data.length - 1)).attr("cy", y(data[data.length - 1])).attr("r", 2.2).style("fill", "var(--series-8)");
+      s.append("text").attr("x", sx + sw + 5).attr("y", lineY[1] + 4).attr("class", "label").style("fill", "var(--text-primary)").text(d3.format(".1f")(data[data.length - 1]));
+      bar(sx + sw + 38, lineY[1], x1 - (sx + sw + 38));
+    })();
+
+    // Slopegraph: eight departments, one gainer in blue.
+    (function () {
+      const { s, w, h } = svg("t-slope");
+      const pairs = [[21, 19], [14, 12.6], [12.4, 12], [10.6, 8.7], [7.8, 9.4], [5.2, 9.3], [6.1, 8.4], [4.2, 3.5]];
+      const xa = w * 0.32, xb = w * 0.68;
+      const y = d3.scaleLinear([3, 21.5], [h - 18, 18]);
+      // labels de-collided with a two-pass sweep (the full page uses iterative relaxation)
+      const place = (vals) => {
+        const L = vals.map((v, i) => ({ i, y: y(v) })).sort((p, q) => p.y - q.y);
+        for (let k = 1; k < L.length; k++) L[k].y = Math.max(L[k].y, L[k - 1].y + 11);
+        const over = L[L.length - 1].y - (h - 8);
+        if (over > 0) L.forEach((l) => (l.y -= over));
+        for (let k = L.length - 2; k >= 0; k--) L[k].y = Math.min(L[k].y, L[k + 1].y - 11);
+        const out = []; L.forEach((l) => (out[l.i] = l.y)); return out;
+      };
+      const la = place(pairs.map((p) => p[0])), lb = place(pairs.map((p) => p[1]));
+      pairs.forEach(([a, b], i) => {
+        const hot = i === 5;
+        s.append("line").attr("x1", xa).attr("x2", xb).attr("y1", y(a)).attr("y2", y(b))
+          .style("stroke", hot ? "var(--series-1)" : "var(--text-muted)").style("stroke-width", hot ? 2 : 1);
+        s.append("text").attr("x", xa - 6).attr("y", la[i] + 3.5).attr("text-anchor", "end").attr("class", "label").style("font-size", "10px").text(d3.format(".1f")(a));
+        s.append("text").attr("x", xb + 6).attr("y", lb[i] + 3.5).attr("class", "label").style("font-size", "10px").text(d3.format(".1f")(b));
+      });
+    })();
+
+    // Small multiples: a 3 by 4 grid of seasonal curves on one scale.
+    (function () {
+      const { s, w, h } = svg("t-sm");
+      const rand = Lab.rng(5);
+      const cols = 4, rows = 3, pad = 16, gx = 10, gy = 10;
+      const pw = (w - 2 * pad - (cols - 1) * gx) / cols, ph = (h - 2 * pad - (rows - 1) * gy) / rows;
+      const y = d3.scaleLinear([20, 100], [ph, 0]), x = d3.scaleLinear([0, 11], [0, pw]);
+      for (let k = 0; k < cols * rows; k++) {
+        const mean = 85 - k * 3.2, amp = 4 + k * 1.6, south = k === 6;
+        const t = d3.range(12).map((m) => mean - (south ? -1 : 1) * amp * Math.cos((2 * Math.PI * (m - 0.5)) / 12) + 1.5 * Lab.randn(rand));
+        const g = s.append("g").attr("transform", `translate(${pad + (k % cols) * (pw + gx)},${pad + Math.floor(k / cols) * (ph + gy)})`);
+        g.append("line").attr("x1", 0).attr("x2", pw).attr("y1", y(62)).attr("y2", y(62)).style("stroke", "var(--axis)").style("stroke-width", 0.6);
+        g.append("path").attr("d", d3.line((v, i) => x(i), y).curve(d3.curveMonotoneX)(t)).style("fill", "none").style("stroke", "var(--text-secondary)").style("stroke-width", 1.1);
+      }
+    })();
+  }
+  Lab.responsive(draw);
+})();
+</script>
+</body>
+</html>

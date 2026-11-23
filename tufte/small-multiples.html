@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Small multiples · Data Viz Lab</title>
+<meta name="description" content="Anscombe's quartet with range-frame axes, a grid of 24 shared-scale climate panels, and a dot-dash plot, after Edward Tufte.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  body.tufte svg text { font-family: var(--serif); }
+  .back { margin: 0 0 1.4rem; font-size: 0.92rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  .t-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .t-row > * { min-width: 0; }
+  .mn { font-size: 0.86rem; line-height: 1.45; color: var(--text-secondary); margin: 0.2rem 0 1.4rem; padding-left: 0.85rem; border-left: 1px solid var(--axis); }
+  .mn p { margin: 0 0 0.6em; }
+  .mn b { font-weight: 400; color: var(--text-primary); }
+  .figure-title { font-style: italic; font-weight: 400; }
+  @media (min-width: 1000px) {
+    .t-row { grid-template-columns: minmax(0, 1fr) 15rem; column-gap: 3rem; align-items: start; }
+    .mn { border-left: 0; padding-left: 0; margin-top: 0.45rem; }
+  }
+  .dot-key { display: inline-block; width: 0.5em; height: 0.5em; border-radius: 50%; vertical-align: 0.05em; margin-right: 0.3em; }
+
+  .rf line, .rf path { stroke: var(--text-muted); stroke-width: 1; }
+  .rf text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums lining-nums; }
+  .ptitle { fill: var(--text-primary); font-style: italic; font-size: 14px; }
+  table.stats { margin-top: 0.6rem; font-size: 0.9rem; }
+  table.stats th { position: static; background: none; font-weight: 400; font-style: italic; color: var(--text-muted); border-bottom: 1px solid var(--axis); }
+  table.stats td { border-bottom: none; padding: 2px 16px 2px 0; }
+  .stats-wrap { overflow-x: auto; }
+
+  #grid svg, #dotdash svg { display: block; overflow: visible; }
+  .panel .cname { fill: var(--text-primary); font-size: 12px; }
+  .panel .crange { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums lining-nums; }
+  .panel path.curve { fill: none; stroke: var(--text-secondary); stroke-width: 1.3; stroke-linejoin: round; }
+  .panel line.ref { stroke: var(--axis); stroke-width: 0.8; }
+  .panel rect.hit { fill: transparent; }
+  .panel.on path.curve { stroke: var(--text-primary); stroke-width: 2; }
+  .panel.on .cname { font-weight: 600; }
+  .gaxis text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums lining-nums; }
+  .dd circle.pt { stroke: var(--text-primary); stroke-width: 1.2; }
+  .dd circle.pt.n { fill: var(--text-primary); }
+  .dd circle.pt.s { fill: var(--page); }
+  .dd circle.pt.on { stroke: var(--series-1); fill: var(--series-1); }
+  .dd line.rug { stroke: var(--text-secondary); stroke-width: 1; }
+  .dd line.rug.on { stroke: var(--series-1); stroke-width: 2; }
+  .dd text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums lining-nums; }
+  .dd text.ttl { font-style: italic; font-size: 12px; fill: var(--text-secondary); }
+  .dd text.dl { fill: var(--text-secondary); font-size: 11.5px; }
+</style>
+</head>
+<body class="tufte">
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/" aria-current="true">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Edward Tufte</a></p>
+  <p class="kicker">Edward Tufte</p>
+  <h1>Small multiples</h1>
+  <p class="lede">The same design repeated across slices of the data, on the same scales, close enough together that the eye compares without remembering. Once the reader has decoded one panel, every other panel is free.</p>
+
+  <h2>Anscombe's quartet</h2>
+  <div class="t-row">
+    <div class="figure" id="fig-ans">
+      <p class="figure-title">Four datasets, one set of summary statistics</p>
+      <p class="figure-sub" id="ans-cap"></p>
+      <div id="ans" role="img" aria-label="Anscombe's quartet: four scatterplots with identical summary statistics and very different shapes"></div>
+      <div class="stats-wrap"><table class="lab stats" id="ans-stats"></table></div>
+    </div>
+    <aside class="mn">
+      <p><b>Range-frames.</b> Each axis line runs only from that panel's minimum to its maximum, and the end ticks are labeled with the exact extremes. The frame itself is data: panel IV's horizontal frame starting at 8 says something the other three do not.</p>
+      <p>All four panels share both scales, so the frames can be compared directly.</p>
+      <p>The blue line is the least-squares fit. It is the same line in every panel, which is precisely the problem.</p>
+    </aside>
+  </div>
+
+  <h2>Twenty-four climates</h2>
+  <div class="t-row">
+    <div class="figure" id="fig-grid">
+      <p class="figure-title">Mean daily high by month, 24 fictional cities</p>
+      <p class="figure-sub" id="grid-sub"></p>
+      <div class="controls">
+        <span role="group" aria-label="Sort order" style="display:inline-flex;gap:0.5rem;align-items:center">
+          <span>Sort</span>
+          <button type="button" data-sort="mean" aria-pressed="true">Warmest first</button>
+          <button type="button" data-sort="swing" aria-pressed="false">Largest swing first</button>
+        </span>
+        <span role="group" aria-label="Vertical scale" style="display:inline-flex;gap:0.5rem;align-items:center">
+          <span>Scale</span>
+          <button type="button" data-scale="shared" aria-pressed="true">Shared</button>
+          <button type="button" data-scale="free" aria-pressed="false">Each its own</button>
+        </span>
+      </div>
+      <div id="grid" role="img" aria-label="Grid of 24 small line charts of monthly temperature"></div>
+    </div>
+    <aside class="mn">
+      <p>The faint horizontal line in each panel is the mean across all 24 cities, the same height everywhere. It turns each panel into an answer to "compared to what?"</p>
+      <p><span class="dot-key" style="background: var(--series-8)"></span>warmest month, <span class="dot-key" style="background: var(--series-1)"></span>coldest month.</p>
+      <p>The curves that run upside down are southern-hemisphere cities. Nobody has to point them out; a shared scale and a shared design make the exception announce itself.</p>
+      <p>Switch to <b>each its own</b> scale and every city looks equally seasonal. The near-equatorial cities, a few degrees of swing, now wave as hard as the continental ones. That is the lie that free scales tell by default.</p>
+    </aside>
+  </div>
+
+  <h2>The same cities as a dot-dash plot</h2>
+  <div class="t-row">
+    <div class="figure" id="fig-dd">
+      <p class="figure-title">Annual mean against seasonal swing</p>
+      <p class="figure-sub">A scatterplot whose axes are its marginal distributions: each dash on the frame is one city. Hover a point or a panel above; they are linked.</p>
+      <div id="dotdash"></div>
+    </div>
+    <aside class="mn">
+      <p>The <b>dot-dash plot</b> replaces each axis with a rug of the one-dimensional data. Clusters, gaps and outliers in each variable are visible on the frame before you look at the joint pattern.</p>
+      <p><span class="dot-key" style="background: var(--text-primary)"></span>northern hemisphere, <span class="dot-key" style="border: 1.2px solid var(--text-primary)"></span>southern. Two marks, no legend box.</p>
+    </aside>
+  </div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>"At the heart of quantitative reasoning is a single question: Compared to what?" Small multiples answer it structurally (<em>Envisioning Information</em>, chapter 4). The comparisons happen within the eyespan, without paging, toggling or memory.</li>
+      <li>Range-frames and dot-dash plots come from the chapter on multifunctioning graphical elements in <em>The Visual Display of Quantitative Information</em>: erase the non-data ink of the frame, then make what remains carry data. Anscombe's quartet opens the same book as the argument for graphing at all.</li>
+      <li>Ordering is half the design. Alphabetical, the default in nearly every BI tool, is the order least likely to reveal anything. Sort by a quantity the reader cares about, and the grid becomes a ranked display as well as a set of portraits.</li>
+      <li>Pushback: a shared scale can flatten low-amplitude panels into lines, and sometimes those small wiggles are the point. A second view with free scales is legitimate, but it must be labeled loudly and never be the only view.</li>
+      <li>The range-frame's minimum and maximum labels invite exact reading, which a conventional axis discourages. For noisy data that precision can be spurious; round accordingly.</li>
+    </ul>
+  </div>
+  <p class="source">Source: Anscombe's quartet from F. J. Anscombe, "Graphs in Statistical Analysis," <em>The American Statistician</em> 27(1), 1973, pp. 17 to 21, reproduced exactly; summary statistics computed in-page. City temperatures are synthetic and fictional, generated with a seeded random number generator (Lab.rng, seed 2024).</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const f2 = d3.format(".2f"), f3 = d3.format(".3f"), f1 = d3.format(".1f"), f0 = d3.format(".0f");
+  const trim = (v) => String(+v.toFixed(2)); // 4.26, 10.84, 8, 19
+
+  /* ---------- range-frame helpers ---------- */
+  // Axis line spans data min..max; ticks at both ends (exact values) plus round values that keep clear of the ends.
+  function rangeFrameX(g, x, lo, hi, y0, minPx) {
+    const a = g.append("g").attr("class", "rf");
+    a.append("line").attr("x1", x(lo)).attr("x2", x(hi)).attr("y1", y0).attr("y2", y0);
+    const mids = x.ticks(5).filter((t) => t > lo && t < hi && x(t) - x(lo) >= minPx && x(hi) - x(t) >= minPx);
+    [lo, ...mids, hi].forEach((t, i, arr) => {
+      if (i > 0 && t === arr[i - 1]) return;
+      a.append("line").attr("x1", x(t)).attr("x2", x(t)).attr("y1", y0).attr("y2", y0 + 4);
+      a.append("text").attr("x", x(t)).attr("y", y0 + 15).attr("text-anchor", "middle").text(trim(t));
+    });
+  }
+  function rangeFrameY(g, y, lo, hi, x0, minPx) {
+    const a = g.append("g").attr("class", "rf");
+    a.append("line").attr("y1", y(lo)).attr("y2", y(hi)).attr("x1", x0).attr("x2", x0);
+    const mids = y.ticks(5).filter((t) => t > lo && t < hi && y(lo) - y(t) >= minPx && y(t) - y(hi) >= minPx);
+    [lo, ...mids, hi].forEach((t, i, arr) => {
+      if (i > 0 && t === arr[i - 1]) return;
+      a.append("line").attr("y1", y(t)).attr("y2", y(t)).attr("x1", x0).attr("x2", x0 - 4);
+      a.append("text").attr("y", y(t)).attr("x", x0 - 6).attr("dy", "0.34em").attr("text-anchor", "end").text(trim(t));
+    });
+  }
+
+  /* ---------- (a) Anscombe's quartet, exact published values ---------- */
+  const X = [10, 8, 13, 9, 11, 14, 6, 4, 12, 7, 5];
+  const Q = [
+    { id: "I", x: X, y: [8.04, 6.95, 7.58, 8.81, 8.33, 9.96, 7.24, 4.26, 10.84, 4.82, 5.68] },
+    { id: "II", x: X, y: [9.14, 8.14, 8.74, 8.77, 9.26, 8.10, 6.13, 3.10, 9.13, 7.26, 4.74] },
+    { id: "III", x: X, y: [7.46, 6.77, 12.74, 7.11, 7.81, 8.84, 6.08, 5.39, 8.15, 6.42, 5.73] },
+    { id: "IV", x: [8, 8, 8, 8, 8, 8, 8, 19, 8, 8, 8], y: [6.58, 5.76, 7.71, 8.84, 8.47, 7.04, 5.25, 12.50, 5.56, 7.91, 6.89] },
+  ];
+  function stats(x, y) {
+    const n = x.length, mx = d3.mean(x), my = d3.mean(y), vx = d3.variance(x), vy = d3.variance(y);
+    let s = 0;
+    for (let i = 0; i < n; i++) s += (x[i] - mx) * (y[i] - my);
+    const cov = s / (n - 1), b = cov / vx;
+    return { n, mx, my, vx, vy, r: cov / Math.sqrt(vx * vy), a: my - b * mx, b };
+  }
+  Q.forEach((q) => (q.st = stats(q.x, q.y)));
+  const st = Q[0].st;
+  document.getElementById("ans-cap").textContent =
+    `In every panel: n = ${st.n}, mean of x = ${f1(st.mx)}, mean of y = ${f2(st.my)}, variance of x = ${f1(st.vx)}, ` +
+    `variance of y = ${f2(st.vy)}, correlation = ${f3(st.r)}, fitted line y = ${f2(st.a)} + ${f3(st.b)}x. ` +
+    `The table below gives each to three decimals.`;
+  const tbl = d3.select("#ans-stats");
+  tbl.append("thead").append("tr").selectAll("th")
+    .data(["Set", "Mean x", "Mean y", "Var x", "Var y", "r", "Intercept", "Slope"]).join("th")
+    .attr("class", (d, i) => (i ? "r" : null)).text((d) => d);
+  tbl.append("tbody").selectAll("tr").data(Q).join("tr").selectAll("td")
+    .data((q) => [q.id, f3(q.st.mx), f3(q.st.my), f3(q.st.vx), f3(q.st.vy), f3(q.st.r), f3(q.st.a), f3(q.st.b)]).join("td")
+    .attr("class", (d, i) => (i ? "r num" : null)).style("font-style", (d, i) => (i ? null : "italic")).text((d) => d);
+
+  const ansHost = document.getElementById("ans");
+  function drawAnscombe() {
+    ansHost.innerHTML = "";
+    const W = Lab.width(ansHost);
+    const cols = W >= 680 ? 4 : 2, gapX = W >= 680 ? 22 : 14, gapY = 18;
+    const pw = (W - gapX * (cols - 1)) / cols, ph = Math.min(240, Math.max(150, pw * 0.82));
+    const m = { l: 34, r: 6, t: 22, b: 30 };
+    const rows = Math.ceil(Q.length / cols);
+    const svg = d3.select(ansHost).append("svg").attr("width", W).attr("height", rows * ph + (rows - 1) * gapY);
+    const x = d3.scaleLinear([3, 20], [m.l, pw - m.r]);
+    const y = d3.scaleLinear([2.5, 13.2], [ph - m.b, m.t]);
+    const narrow = pw < 200;
+    Q.forEach((q, k) => {
+      const g = svg.append("g").attr("transform", `translate(${(k % cols) * (pw + gapX)},${Math.floor(k / cols) * (ph + gapY)})`);
+      g.append("text").attr("class", "ptitle").attr("x", m.l).attr("y", 12).text(q.id);
+      const [xl, xh] = d3.extent(q.x), [yl, yh] = d3.extent(q.y);
+      rangeFrameX(g, x, xl, xh, ph - m.b + 7, narrow ? 20 : 24);
+      rangeFrameY(g, y, yl, yh, m.l - 7, 15);
+      g.append("line").attr("x1", x(3.5)).attr("x2", x(19.5))
+        .attr("y1", y(q.st.a + q.st.b * 3.5)).attr("y2", y(q.st.a + q.st.b * 19.5))
+        .style("stroke", "var(--series-1)").style("stroke-width", 1.1);
+      g.selectAll("circle").data(q.x.map((v, i) => [v, q.y[i]])).join("circle")
+        .attr("cx", (d) => x(d[0])).attr("cy", (d) => y(d[1])).attr("r", narrow ? 2.6 : 3.1)
+        .style("fill", "var(--text-primary)")
+        .on("pointerenter pointermove", (e, d) => Lab.tooltip.show(e, `<span class="tt-k">Set ${q.id}</span> x = ${d[0]}, y = ${d[1]}`))
+        .on("pointerleave", () => Lab.tooltip.hide());
+    });
+  }
+  Lab.responsive(drawAnscombe);
+
+  /* ---------- (b) 24 fictional cities ---------- */
+  const NAMES = ["Port Avalon", "Halvorsen", "Mirebrook", "Castellan", "Dunmore", "Quillon", "Saltmarsh", "Verenna",
+    "Kestrel Bay", "Ombria", "Tarrow", "Lindqvist", "Pellham", "Ardenne", "Solvara", "Ninefield",
+    "Hollin", "Marisco", "Caddow", "Esterlund", "Rook Harbor", "Tamsin", "Varga", "Yellowmere"];
+  const SOUTH = new Set(["Castellan", "Verenna", "Pellham", "Marisco", "Tamsin"]);
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const rand = Lab.rng(2024);
+  const cities = NAMES.map((name) => {
+    const mean = 46 + 40 * rand();
+    // near-equatorial cities barely swing; maritime ones swing less than continental ones
+    const amp = mean > 76 ? 1.5 + 4 * rand() : 6 + 17 * rand();
+    const south = SOUTH.has(name);
+    const lag = 0.45 + 0.4 * rand() + (south ? 6 : 0);
+    const t = MON.map((_, mo) => +(mean - amp * Math.cos((2 * Math.PI * (mo - lag)) / 12) + 1.1 * Lab.randn(rand)).toFixed(1));
+    const lo = d3.min(t), hi = d3.max(t);
+    return { name, south, t, mean: d3.mean(t), lo, hi, swing: hi - lo, warm: d3.maxIndex(t), cold: d3.minIndex(t) };
+  });
+  const grand = d3.mean(cities, (c) => c.mean);
+  const gLo = Math.floor(d3.min(cities, (c) => c.lo) / 10) * 10, gHi = Math.ceil(d3.max(cities, (c) => c.hi) / 10) * 10;
+  document.getElementById("grid-sub").textContent =
+    `Degrees Fahrenheit, January to December. Every panel shares the same scale, ${gLo}° to ${gHi}°, unless you say otherwise.`;
+
+  let sortBy = "mean", scaleBy = "shared", hl = null;
+  const gridHost = document.getElementById("grid"), ddHost = document.getElementById("dotdash");
+  let panelSel = null, dotSel = null, rugSel = null;
+
+  function setHL(name) {
+    hl = name;
+    if (panelSel) panelSel.classed("on", (c) => c.name === hl);
+    if (dotSel) dotSel.classed("on", (c) => c.name === hl).filter((c) => c.name === hl).raise();
+    if (rugSel) rugSel.classed("on", (c) => c.name === hl);
+  }
+  function cityTip(c) {
+    return `<strong>${c.name}</strong> <span class="tt-k">${c.south ? "southern" : "northern"} hemisphere</span><br>` +
+      `<span class="tt-k">Annual mean</span> ${f1(c.mean)}°F<br><span class="tt-k">Coldest</span> ${MON[c.cold]}, ${f0(c.lo)}°` +
+      `<br><span class="tt-k">Warmest</span> ${MON[c.warm]}, ${f0(c.hi)}°<br><span class="tt-k">Swing</span> ${f0(c.swing)}°`;
+  }
+
+  function drawGrid() {
+    gridHost.innerHTML = "";
+    const W = Lab.width(gridHost);
+    const cols = W >= 860 ? 6 : W >= 560 ? 4 : 3;
+    const gutter = 30, gapX = cols === 3 ? 10 : 16, gapY = 14;
+    const pw = (W - gutter - gapX * (cols - 1)) / cols;
+    const head = 17, ph = cols === 3 ? 46 : 58;
+    const cellH = head + ph;
+    const order = cities.slice().sort((a, b) => (sortBy === "mean" ? b.mean - a.mean : b.swing - a.swing));
+    const rows = Math.ceil(order.length / cols);
+    const H = rows * cellH + (rows - 1) * gapY + 16;
+    const svg = d3.select(gridHost).append("svg").attr("width", W).attr("height", H);
+    const x = d3.scaleLinear([0, 11], [2, pw - 2]);
+    const yShared = d3.scaleLinear([gLo, gHi], [head + ph - 2, head + 3]);
+    const showRange = pw >= 120;
+
+    // shared-scale axis: a range-frame in the gutter of each row's first panel
+    if (scaleBy === "shared") {
+      for (let r = 0; r < rows; r++) {
+        const a = svg.append("g").attr("class", "gaxis").attr("transform", `translate(0,${r * (cellH + gapY)})`);
+        [gLo, Math.round(grand), gHi].forEach((v) => a.append("text").attr("x", gutter - 6).attr("y", yShared(v)).attr("dy", "0.34em")
+          .attr("text-anchor", "end").text(v + "°"));
+      }
+    }
+    panelSel = svg.selectAll("g.panel").data(order, (c) => c.name).join("g").attr("class", "panel")
+      .attr("transform", (c, i) => `translate(${gutter + (i % cols) * (pw + gapX)},${Math.floor(i / cols) * (cellH + gapY)})`);
+    panelSel.each(function (c) {
+      const g = d3.select(this);
+      const y = scaleBy === "shared" ? yShared : d3.scaleLinear([c.lo, c.hi], [head + ph - 2, head + 3]);
+      g.append("text").attr("class", "cname").attr("x", 0).attr("y", 11).text(c.name);
+      if (showRange) g.append("text").attr("class", "crange").attr("x", pw).attr("y", 11).attr("text-anchor", "end").text(`${f0(c.lo)}–${f0(c.hi)}°`);
+      if (scaleBy === "shared") g.append("line").attr("class", "ref").attr("x1", 0).attr("x2", pw).attr("y1", y(grand)).attr("y2", y(grand));
+      g.append("path").attr("class", "curve").attr("d", d3.line((v, i) => x(i), y).curve(d3.curveMonotoneX)(c.t));
+      g.append("circle").attr("cx", x(c.warm)).attr("cy", y(c.hi)).attr("r", 2.3).style("fill", "var(--series-8)");
+      g.append("circle").attr("cx", x(c.cold)).attr("cy", y(c.lo)).attr("r", 2.3).style("fill", "var(--series-1)");
+      g.append("rect").attr("class", "hit").attr("width", pw).attr("height", cellH);
+    });
+    panelSel.on("pointerenter", (e, c) => { setHL(c.name); Lab.tooltip.show(e, cityTip(c)); })
+      .on("pointermove", (e, c) => Lab.tooltip.show(e, cityTip(c)))
+      .on("pointerleave", () => { setHL(null); Lab.tooltip.hide(); });
+
+    // month labels under the last row only
+    const lastRowY = (rows - 1) * (cellH + gapY) + cellH + 12;
+    const lastCols = order.length - (rows - 1) * cols;
+    for (let k = 0; k < cols; k++) {
+      const yy = k < lastCols ? lastRowY : lastRowY - (cellH + gapY);
+      const gx = gutter + k * (pw + gapX);
+      const a = svg.append("g").attr("class", "gaxis");
+      a.append("text").attr("x", gx + x(0)).attr("y", yy).text("Jan");
+      a.append("text").attr("x", gx + x(11)).attr("y", yy).attr("text-anchor", "end").text("Dec");
+    }
+    setHL(hl);
+  }
+
+  function drawDotDash() {
+    ddHost.innerHTML = "";
+    const avail = Lab.width(ddHost);
+    const W = Math.min(avail, 640), narrow = W < 480;
+    const H = narrow ? 270 : 330;
+    const m = { l: 46, r: narrow ? 12 : 90, t: 30, b: 40 };
+    const svg = d3.select(ddHost).append("svg").attr("width", W).attr("height", H).attr("class", "dd")
+      .attr("role", "img").attr("aria-label", "Dot-dash plot of annual mean temperature against seasonal swing for 24 cities");
+    const xe = d3.extent(cities, (c) => c.mean), ye = d3.extent(cities, (c) => c.swing);
+    const x = d3.scaleLinear([xe[0] - 1.5, xe[1] + 1.5], [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, ye[1] + 2], [H - m.b, m.t]);
+    const rx = H - m.b + 8, ry = m.l - 10;
+    rugSel = svg.append("g").selectAll("g").data(cities).join("g");
+    rugSel.append("line").attr("class", "rug").attr("x1", (c) => x(c.mean)).attr("x2", (c) => x(c.mean)).attr("y1", rx).attr("y2", rx + 7);
+    rugSel.append("line").attr("class", "rug").attr("y1", (c) => y(c.swing)).attr("y2", (c) => y(c.swing)).attr("x1", ry - 7).attr("x2", ry);
+    rugSel = rugSel.selectAll("line.rug");
+    // end labels: the exact extremes, as on a range-frame
+    [[xe[0], "start"], [xe[1], "end"]].forEach(([v, anc]) => svg.append("text").attr("x", x(v)).attr("y", rx + 20).attr("text-anchor", anc).text(f1(v) + "°"));
+    [ye[0], ye[1]].forEach((v) => svg.append("text").attr("x", ry - 10).attr("y", y(v)).attr("dy", "0.34em").attr("text-anchor", "end").text(f0(v) + "°"));
+    svg.append("text").attr("class", "ttl").attr("x", (x(xe[0]) + x(xe[1])) / 2).attr("y", H - 4).attr("text-anchor", "middle").text("Annual mean, °F");
+    svg.append("text").attr("class", "ttl").attr("x", ry - 7).attr("y", 12).text("Seasonal swing, warmest minus coldest month, °F");
+
+    dotSel = svg.append("g").selectAll("circle").data(cities).join("circle")
+      .attr("class", (c) => "pt " + (c.south ? "s" : "n"))
+      .attr("cx", (c) => x(c.mean)).attr("cy", (c) => y(c.swing)).attr("r", 3.6)
+      .on("pointerenter", (e, c) => { setHL(c.name); Lab.tooltip.show(e, cityTip(c)); })
+      .on("pointermove", (e, c) => Lab.tooltip.show(e, cityTip(c)))
+      .on("pointerleave", () => { setHL(null); Lab.tooltip.hide(); });
+    // direct labels for the two extremes of swing
+    if (!narrow) {
+      [d3.greatest(cities, (c) => c.swing), d3.least(cities, (c) => c.swing)].forEach((c) =>
+        svg.append("text").attr("class", "dl").attr("x", x(c.mean) + 7).attr("y", y(c.swing)).attr("dy", "0.34em").text(c.name));
+    }
+    setHL(hl);
+  }
+
+  d3.selectAll("#fig-grid [data-sort]").on("click", function () {
+    sortBy = this.dataset.sort;
+    d3.selectAll("#fig-grid [data-sort]").attr("aria-pressed", function () { return String(this.dataset.sort === sortBy); });
+    drawGrid();
+  });
+  d3.selectAll("#fig-grid [data-scale]").on("click", function () {
+    scaleBy = this.dataset.scale;
+    d3.selectAll("#fig-grid [data-scale]").attr("aria-pressed", function () { return String(this.dataset.scale === scaleBy); });
+    document.getElementById("grid-sub").textContent = scaleBy === "shared"
+      ? `Degrees Fahrenheit, January to December. Every panel shares the same scale, ${gLo}° to ${gHi}°.`
+      : "Degrees Fahrenheit, January to December. Each panel is stretched to its own minimum and maximum: compare shapes only.";
+    drawGrid();
+  });
+  Lab.responsive(() => { drawGrid(); drawDotDash(); });
+
+  Lab.tableView("#fig-grid", [{ key: "name", label: "City" }, { key: "hemi", label: "Hemisphere" }]
+    .concat(MON.map((mo, i) => ({ key: "m" + i, label: mo, align: "r", format: f1 })))
+    .concat([{ key: "mean", label: "Mean", align: "r", format: f1 }]),
+    cities.map((c) => Object.assign({ name: c.name, hemi: c.south ? "S" : "N", mean: c.mean }, Object.fromEntries(c.t.map((v, i) => ["m" + i, v])))));
+})();
+</script>
+</body>
+</html>

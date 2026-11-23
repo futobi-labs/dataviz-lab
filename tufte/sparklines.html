@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sparklines · Data Viz Lab</title>
+<meta name="description" content="Word-sized graphics in running prose, in a dense table, and as win-loss sparkbars, after Edward Tufte's Beautiful Evidence.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  /* shared Tufte-section layout: a main column plus a margin column that folds inline on narrow screens */
+  body.tufte svg text { font-family: var(--serif); }
+  .back { margin: 0 0 1.4rem; font-size: 0.92rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  .t-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .t-row > * { min-width: 0; }
+  .mn { font-size: 0.86rem; line-height: 1.45; color: var(--text-secondary); margin: 0.2rem 0 1.4rem; padding-left: 0.85rem; border-left: 1px solid var(--axis); }
+  .mn p { margin: 0 0 0.6em; }
+  .mn b { font-weight: 400; color: var(--text-primary); }
+  .figure-title { font-style: italic; font-weight: 400; }
+  @media (min-width: 1000px) {
+    .t-row { grid-template-columns: minmax(0, 1fr) 15rem; column-gap: 3rem; align-items: start; }
+    .mn { border-left: 0; padding-left: 0; margin-top: 0.45rem; }
+  }
+
+  /* sparklines: sized in em so they track the surrounding type */
+  svg.spark { vertical-align: -0.14em; overflow: visible; }
+  #prose > span[id^="sp-"] { white-space: nowrap; }
+  .spark-num { font-variant-numeric: tabular-nums lining-nums; margin-left: 0.18em; }
+  .prose { font-size: 1.12rem; line-height: 1.75; max-width: 40em; }
+  .dot-key { display: inline-block; width: 0.42em; height: 0.42em; border-radius: 50%; vertical-align: 0.08em; margin: 0 0.15em; }
+
+  .tbl-wrap { overflow-x: auto; }
+  table.spark-table { width: 100%; max-width: 44rem; font-size: 0.95rem; }
+  table.spark-table th { position: static; background: none; font-weight: 400; font-style: italic; color: var(--text-muted); border-bottom: 1px solid var(--axis); padding-bottom: 6px; }
+  table.spark-table td { border-bottom: none; padding: 3px 14px 3px 0; white-space: nowrap; }
+  table.spark-table td.sp { line-height: 1; }
+  table.spark-table tr:hover td { background: var(--surface-2); }
+  .tk { font-variant-caps: all-small-caps; letter-spacing: 0.05em; color: var(--text-primary); }
+  .nm { color: var(--text-secondary); margin-left: 0.35em; }
+  @media (max-width: 560px) { .spark-table .nm, .spark-table .lohi { display: none; } }
+
+  .wl { max-width: 44rem; margin-top: 0.4rem; }
+  .wl-row { display: grid; grid-template-columns: 10.5em minmax(0, 1fr) 3.6em; column-gap: 0.9em; align-items: center; padding: 3px 0; }
+  .wl-row svg { width: 100%; height: 1.35em; display: block; }
+  .wl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+  .wl-rec { text-align: right; font-variant-numeric: tabular-nums; }
+  .wl-axis { display: grid; grid-template-columns: 10.5em minmax(0, 1fr) 3.6em; column-gap: 0.9em; font-size: 0.8rem; color: var(--text-muted); font-style: italic; }
+  .wl-axis span:nth-child(2) { display: flex; justify-content: space-between; }
+  @media (max-width: 560px) {
+    .wl-row, .wl-axis { grid-template-columns: minmax(0, 1fr) 3.4em; }
+    .wl-row .wl-name { grid-column: 1 / -1; font-size: 0.88rem; }
+    .wl-axis span:first-child { display: none; }
+  }
+</style>
+</head>
+<body class="tufte">
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/" aria-current="true">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Edward Tufte</a></p>
+  <p class="kicker">Edward Tufte</p>
+  <h1>Sparklines</h1>
+  <p class="lede">Data-intense, design-simple, word-sized graphics. A sparkline earns its place by sitting where the number would have gone, so the reader gets the history without leaving the sentence or the row.</p>
+
+  <h2>In running text</h2>
+  <div class="t-row">
+    <p class="prose" id="prose">
+      Over the last 80 readings the patient's blood glucose <span id="sp-glu"></span> stayed inside the normal range on <span id="glu-in"></span> of them; every excursion runs upward, peaking at <span id="glu-max"></span> mg/dL, and the low was <span id="glu-min"></span>.
+      Harbor Instruments <span id="sp-stk"></span> finished the year <span id="stk-chg"></span> from its first close, but the path ran through a drawdown of <span id="stk-dd"></span>, which a single year-over-year number would never show.
+      Port Avalon's daily high <span id="sp-tmp"></span> traced the expected year, from <span id="tmp-min"></span> in winter to <span id="tmp-max"></span> in summer, while its monthly rainfall <span id="sp-rain"></span> was heaviest in <span id="rain-wet"></span>.
+    </p>
+    <aside class="mn">
+      <p><span class="dot-key" style="background: var(--series-8)"></span><b>Red</b> marks the latest value, which is also the number printed after each line.</p>
+      <p><span class="dot-key" style="background: var(--series-1)"></span><b>Blue</b> marks the minimum and maximum.</p>
+      <p>The gray band behind the glucose line is the normal range, 70 to 120 mg/dL. It does the job of an axis: it answers "is this fine?" without a single tick.</p>
+      <p>Each sparkline is sized in em. Zoom the page and the graphics grow with the type. Hover any of them for the value under the pointer.</p>
+    </aside>
+  </div>
+
+  <h2>In a table</h2>
+  <div class="t-row">
+    <div class="figure" id="fig-table">
+      <p class="figure-title">Twelve fictional securities, last 250 sessions</p>
+      <p class="figure-sub">Sorted by change over the period. Toggle the sparkline scale and watch which rows become interesting.</p>
+      <div class="controls" role="group" aria-label="Sparkline scale">
+        <span>Scale</span>
+        <button type="button" data-scale="own" aria-pressed="true">Each row its own range</button>
+        <button type="button" data-scale="common" aria-pressed="false">Common, indexed, log</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="lab spark-table" id="spark-table">
+          <thead><tr><th>Security</th><th>250 sessions</th><th class="r">Last</th><th class="r">Change</th><th class="r lohi">Low</th><th class="r lohi">High</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <aside class="mn" id="scale-note">
+      <p><b>Own range</b> stretches every line to fill its row. Shape is maximally legible; magnitude is gone. A 4 percent wobble and a 60 percent collapse look equally dramatic.</p>
+      <p><b>Common, indexed</b> rebases each series to 100 at the first session and puts all twelve on one logarithmic scale, so a doubling and a halving are the same height. The faint hairline is 100. Quiet rows now look quiet, and the one big winner no longer gets to flatten everyone else.</p>
+      <p>Neither is wrong. The row's printed numbers carry magnitude either way, which is why a sparkline should never travel without them.</p>
+    </aside>
+  </div>
+
+  <h2>Win and loss</h2>
+  <div class="t-row">
+    <div class="figure" id="fig-wl">
+      <p class="figure-title">An 82-game season, six fictional clubs</p>
+      <p class="figure-sub">One tick per game in schedule order: up for a win, down for a loss. Sorted by wins.</p>
+      <div class="wl" id="wl"></div>
+    </div>
+    <aside class="mn">
+      <p>Binary outcomes compress to their essence: direction only. Streaks, slumps and the second-half collapse become shapes.</p>
+      <p><span class="dot-key" style="background: var(--series-1)"></span><b>Blue</b> picks out each club's longest winning streak. Losses are drawn lighter than wins so the eye reads the up-strokes first.</p>
+      <p>Tufte's version used a baseball season; the form works for any yes-or-no series, from builds passing to on-time deliveries.</p>
+    </aside>
+  </div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>The definition is from <em>Beautiful Evidence</em>: "data-intense, design-simple, word-sized graphics." The context, a sentence or a table row, supplies the labels, so the graphic needs none.</li>
+      <li>At word size the height is fixed by the type, which means choosing the width is choosing the slope. Cleveland's banking to 45 degrees matters more here than in a full chart, and most dashboard sparklines are far too wide and flat.</li>
+      <li>Per-row scaling is the single most common way sparklines mislead in business dashboards. If the question is "which moved most," use a common scale; if it is "what shape did each take," use own ranges and print the numbers.</li>
+      <li>Pushback: sparklines in flowing prose are beautiful in print and fragile on screens. Reflow can strand a graphic at a line break, and screen readers need the aria label to say what the eye sees. In practice they belong in tables far more often than in paragraphs.</li>
+    </ul>
+  </div>
+  <p class="source">Source: all series are synthetic and fictional, generated in-page with a seeded random number generator (Lab.rng, seeds 1983 and up). Patient, securities, city and clubs are invented.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const U = 10; // viewBox units per em: an svg of w em by h em gets a viewBox of 10w by 10h, so it scales with the type
+  const f1 = d3.format(",.1f"), f0 = d3.format(",.0f"), fUsd = d3.format("$,.2f"), fChg = d3.format("+.1%");
+
+  function hover(svg, x, y, data, W, H, tipFn) {
+    const cur = svg.append("circle").attr("r", 1.15)
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 0.45).style("opacity", 0);
+    svg.append("rect").attr("width", W).attr("height", H)
+      .style("fill", "transparent").style("cursor", "crosshair")
+      .on("pointermove", function (e) {
+        const r = svg.node().getBoundingClientRect();
+        const ux = ((e.clientX - r.left) / (r.width || 1)) * W;
+        const i = Math.max(0, Math.min(data.length - 1, Math.round(x.invert(ux))));
+        cur.attr("cx", x(i)).attr("cy", y(data[i])).style("opacity", 1);
+        Lab.tooltip.show(e, tipFn(i, data[i]));
+      })
+      .on("pointerleave", () => { cur.style("opacity", 0); Lab.tooltip.hide(); });
+  }
+
+  /** Line sparkline. o: wEm, hEm, band [lo,hi], domain, ref, minmax, last, tip(i,v), aria */
+  function spark(host, data, o) {
+    o = Object.assign({ wEm: 6, hEm: 1, minmax: true, last: true }, o);
+    const W = o.wEm * U, H = o.hEm * U, px = 1.3, py = 1.3;
+    const svg = d3.select(host).append("svg").attr("class", "spark")
+      .attr("width", o.wEm + "em").attr("height", o.hEm + "em")
+      .attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", o.aria || "sparkline");
+    const dom = o.domain || d3.extent(o.band ? data.concat(o.band) : data);
+    const x = d3.scaleLinear([0, data.length - 1], [px, W - px]);
+    const y = (o.log ? d3.scaleLog() : d3.scaleLinear()).domain(dom).range([H - py, py]);
+    if (o.band) svg.append("rect").attr("x", px).attr("width", W - 2 * px)
+      .attr("y", y(o.band[1])).attr("height", Math.max(0, y(o.band[0]) - y(o.band[1]))).style("fill", "var(--grid)");
+    if (o.ref != null) svg.append("line").attr("x1", px).attr("x2", W - px).attr("y1", y(o.ref)).attr("y2", y(o.ref))
+      .style("stroke", "var(--axis)").style("stroke-width", 0.4);
+    svg.append("path").attr("d", d3.line((d, i) => x(i), y)(data))
+      .style("fill", "none").style("stroke", "var(--text-secondary)").style("stroke-width", o.sw || 0.65)
+      .style("stroke-linejoin", "round");
+    const dot = (i, c, r) => svg.append("circle").attr("cx", x(i)).attr("cy", y(data[i])).attr("r", r).style("fill", c);
+    if (o.minmax) { dot(d3.minIndex(data), "var(--series-1)", 0.95); dot(d3.maxIndex(data), "var(--series-1)", 0.95); }
+    if (o.last) dot(data.length - 1, "var(--series-8)", 1.1);
+    if (o.tip) hover(svg, x, y, data, W, H, o.tip);
+    return svg;
+  }
+
+  /** Bar sparkline (sparkbars). */
+  function sparkbars(host, data, o) {
+    o = Object.assign({ wEm: 4, hEm: 1 }, o);
+    const W = o.wEm * U, H = o.hEm * U, py = 0.6;
+    const svg = d3.select(host).append("svg").attr("class", "spark")
+      .attr("width", o.wEm + "em").attr("height", o.hEm + "em")
+      .attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", o.aria || "bar sparkline");
+    const x = d3.scaleBand(d3.range(data.length), [0, W]).paddingInner(0.28);
+    const y = d3.scaleLinear([0, d3.max(data)], [H - py, py]);
+    const hi = d3.maxIndex(data);
+    svg.selectAll("rect.b").data(data).join("rect").attr("class", "b")
+      .attr("x", (d, i) => x(i)).attr("width", x.bandwidth())
+      .attr("y", (d) => y(d)).attr("height", (d) => y(0) - y(d))
+      .style("fill", (d, i) => (i === hi ? "var(--series-1)" : "var(--text-muted)"));
+    if (o.tip) {
+      svg.append("rect").attr("width", W).attr("height", H).style("fill", "transparent")
+        .on("pointermove", function (e) {
+          const r = svg.node().getBoundingClientRect();
+          const i = Math.max(0, Math.min(data.length - 1, Math.floor(((e.clientX - r.left) / (r.width || 1)) * data.length)));
+          Lab.tooltip.show(e, o.tip(i, data[i]));
+        })
+        .on("pointerleave", () => Lab.tooltip.hide());
+    }
+    return svg;
+  }
+
+  function inline(id, draw, lastText) {
+    const host = document.getElementById(id);
+    host.innerHTML = "";
+    draw(host);
+    if (lastText != null) {
+      const s = document.createElement("span");
+      s.className = "spark-num";
+      s.textContent = lastText;
+      host.appendChild(s);
+    }
+  }
+  const put = (id, t) => { document.getElementById(id).textContent = t; };
+
+  /* ---------- data ---------- */
+  const rand = Lab.rng(1983);
+
+  // Glucose: mean-reverting around 100 mg/dL, with occasional post-meal spikes.
+  const glu = [];
+  let g = 100;
+  for (let i = 0; i < 80; i++) {
+    g = 100 + 0.55 * (g - 100) + 9 * Lab.randn(rand);
+    let v = g;
+    if (rand() < 0.08) v += 42 + 28 * rand();
+    glu.push(Math.round(Math.max(62, v)));
+  }
+  const BAND = [70, 120];
+
+  // Securities: seeded random walks with their own drift and volatility.
+  const SEC = [
+    ["hrbr", "Harbor Instruments", 42, 0.0004, 0.019],
+    ["cldr", "Calder Rail", 88, 0.0003, 0.009],
+    ["nfmu", "Northfield Mutual", 31, 0.0001, 0.006],
+    ["ostm", "Ostrava Mining", 17, -0.0012, 0.031],
+    ["plcd", "Pellucid Bio", 9.5, 0.0013, 0.042],
+    ["gryl", "Greyline Logistics", 64, -0.0002, 0.014],
+    ["tmsn", "Tamsin Foods", 52, 0.0002, 0.007],
+    ["vntr", "Vantor Semiconductor", 140, 0.0016, 0.024],
+    ["wxly", "Wexley Power", 38, 0.0005, 0.008],
+    ["qrln", "Quarry Lane Realty", 23, -0.0008, 0.012],
+    ["brmr", "Brightmoor Retail", 27, -0.0016, 0.022],
+    ["slnt", "Solent Telecom", 46, 0.0000, 0.010],
+  ];
+  const N = 250;
+  const secs = SEC.map(([tk, name, start, drift, vol], k) => {
+    const s = Lab.walk(Lab.rng(1983 + 17 * (k + 1)), N, start, drift, vol).map((v) => Math.round(v * 100) / 100);
+    return { tk, name, s, last: s[N - 1], chg: s[N - 1] / s[0] - 1, lo: d3.min(s), hi: d3.max(s), idx: s.map((v) => (100 * v) / s[0]) };
+  }).sort((a, b) => b.chg - a.chg);
+  const hrbr = secs.find((d) => d.tk === "hrbr");
+  let peak = -Infinity, dd = 0;
+  hrbr.s.forEach((v) => { peak = Math.max(peak, v); dd = Math.max(dd, (peak - v) / peak); });
+
+  // Port Avalon: daily high (degrees F) over a calendar year, and monthly rainfall (inches).
+  const tmp = [];
+  let noise = 0;
+  for (let d = 0; d < 365; d++) {
+    noise = 0.65 * noise + 4.2 * Lab.randn(rand);
+    tmp.push(Math.round(57 - 21 * Math.cos((2 * Math.PI * (d - 20)) / 365) + noise));
+  }
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const rain = d3.range(12).map((m) => Math.max(0.4, Math.round((3.3 + 1.5 * Math.sin((2 * Math.PI * (m - 2)) / 12) + 0.9 * Lab.randn(rand)) * 10) / 10));
+  const dayName = (d) => d3.timeFormat("%b %-d")(new Date(2025, 0, 1 + d));
+
+  /* ---------- (a) prose ---------- */
+  inline("sp-glu", (h) => spark(h, glu, { wEm: 5.5, band: BAND, aria: "Glucose sparkline, 80 readings, normal band 70 to 120",
+    tip: (i, v) => `<span class="tt-k">Reading ${i + 1}</span> ${v} mg/dL` }), glu[glu.length - 1]);
+  put("glu-in", glu.filter((v) => v >= BAND[0] && v <= BAND[1]).length);
+  put("glu-max", d3.max(glu));
+  put("glu-min", d3.min(glu));
+
+  inline("sp-stk", (h) => spark(h, hrbr.s, { wEm: 6, aria: "Harbor Instruments price sparkline, 250 sessions",
+    tip: (i, v) => `<span class="tt-k">Session ${i + 1}</span> ${fUsd(v)}` }), fUsd(hrbr.last));
+  put("stk-chg", fChg(hrbr.chg).replace("+", "up ").replace("−", "down "));
+  put("stk-dd", d3.format(".0%")(dd));
+
+  inline("sp-tmp", (h) => spark(h, tmp, { wEm: 7, aria: "Daily high temperature sparkline over one year",
+    tip: (i, v) => `<span class="tt-k">${dayName(i)}</span> ${v}°F` }), tmp[tmp.length - 1] + "°F");
+  put("tmp-min", d3.min(tmp) + "°F");
+  put("tmp-max", d3.max(tmp) + "°F");
+
+  inline("sp-rain", (h) => sparkbars(h, rain, { wEm: 3.6, aria: "Monthly rainfall bar sparkline",
+    tip: (i, v) => `<span class="tt-k">${MONTHS[i]}</span> ${f1(v)} in` }), f1(d3.sum(rain)) + " in");
+  put("rain-wet", MONTHS[d3.maxIndex(rain)]);
+
+  /* ---------- (b) table ---------- */
+  let scale = "own";
+  const tbody = d3.select("#spark-table tbody");
+  const commonDom = d3.extent(secs.flatMap((d) => d.idx));
+  function renderTable() {
+    const wEm = window.innerWidth < 560 ? 6.5 : 10;
+    tbody.selectAll("tr").remove();
+    secs.forEach((d) => {
+      const tr = tbody.append("tr");
+      tr.append("td").html(`<span class="tk">${d.tk}</span><span class="nm">${d.name}</span>`);
+      const td = tr.append("td").attr("class", "sp");
+      const series = scale === "own" ? d.s : d.idx;
+      spark(td.node(), series, {
+        wEm, hEm: 1.15,
+        domain: scale === "own" ? null : commonDom,
+        ref: scale === "own" ? null : 100,
+        log: scale !== "own",
+        aria: `${d.name} sparkline`,
+        tip: (i) => `<span class="tt-k">${d.tk.toUpperCase()}, session ${i + 1}</span> ${fUsd(d.s[i])}`,
+      });
+      tr.append("td").attr("class", "r num").text(f1(d.last));
+      tr.append("td").attr("class", "r num").text(fChg(d.chg));
+      tr.append("td").attr("class", "r num lohi").text(f1(d.lo));
+      tr.append("td").attr("class", "r num lohi").text(f1(d.hi));
+    });
+  }
+  d3.selectAll("#fig-table [data-scale]").on("click", function () {
+    scale = this.dataset.scale;
+    d3.selectAll("#fig-table [data-scale]").attr("aria-pressed", function () { return String(this.dataset.scale === scale); });
+    renderTable();
+  });
+  Lab.responsive(renderTable);
+  Lab.tableView("#fig-table", [
+    { key: "tk", label: "Ticker", format: (v) => v.toUpperCase() },
+    { key: "name", label: "Name" },
+    { key: "first", label: "First", align: "r", format: f1 },
+    { key: "last", label: "Last", align: "r", format: f1 },
+    { key: "chg", label: "Change", align: "r", format: fChg },
+    { key: "lo", label: "Low", align: "r", format: f1 },
+    { key: "hi", label: "High", align: "r", format: f1 },
+  ], secs.map((d) => Object.assign({ first: d.s[0] }, d)), "Show the summary as a table");
+
+  /* ---------- (c) win-loss ---------- */
+  const TEAMS = [["Kestrel Bay Gulls", 0.6], ["Port Avalon Herons", 0.56], ["Tarrow Owls", 0.51], ["Mirebrook Foxes", 0.47], ["Dunmore Pilots", 0.43], ["Saltmarsh Rays", 0.37]];
+  const G = 82;
+  const teams = TEAMS.map(([name, base], k) => {
+    const r = Lab.rng(7000 + k);
+    const res = [];
+    let prev = r() < base;
+    for (let i = 0; i < G; i++) {
+      // momentum: a little streakiness, and a slow drift across the season
+      const p = base + (prev ? 0.09 : -0.09) + (k % 2 ? 0.08 : -0.08) * (i / G - 0.5);
+      prev = r() < p;
+      res.push(prev ? 1 : 0);
+    }
+    let best = { start: 0, len: 0 }, run = 0;
+    res.forEach((v, i) => { run = v ? run + 1 : 0; if (run > best.len) best = { start: i - run + 1, len: run }; });
+    return { name, res, w: d3.sum(res), best };
+  }).sort((a, b) => b.w - a.w);
+
+  const wl = d3.select("#wl");
+  const BW = 4, WH = 20;
+  teams.forEach((t) => {
+    const row = wl.append("div").attr("class", "wl-row");
+    row.append("span").attr("class", "wl-name").text(t.name);
+    const svg = row.append("svg").attr("viewBox", `0 0 ${G * BW} ${WH}`).attr("preserveAspectRatio", "none")
+      .attr("role", "img").attr("aria-label", `${t.name}: ${t.w} wins, ${G - t.w} losses, longest winning streak ${t.best.len}`);
+    svg.selectAll("rect.g").data(t.res).join("rect").attr("class", "g")
+      .attr("x", (d, i) => i * BW + 0.6).attr("width", BW - 1.2)
+      .attr("y", (d) => (d ? 1 : WH / 2 + 1)).attr("height", WH / 2 - 2)
+      .style("fill", (d, i) => d ? (i >= t.best.start && i < t.best.start + t.best.len ? "var(--series-1)" : "var(--text-primary)") : "var(--axis)");
+    svg.append("rect").attr("width", G * BW).attr("height", WH).style("fill", "transparent")
+      .on("pointermove", function (e) {
+        const r = svg.node().getBoundingClientRect();
+        const i = Math.max(0, Math.min(G - 1, Math.floor(((e.clientX - r.left) / (r.width || 1)) * G)));
+        const w = d3.sum(t.res.slice(0, i + 1));
+        Lab.tooltip.show(e, `<span class="tt-k">${t.name}, game ${i + 1}</span> ${t.res[i] ? "Win" : "Loss"}, ${w}–${i + 1 - w}`);
+      })
+      .on("pointerleave", () => Lab.tooltip.hide());
+    row.append("span").attr("class", "wl-rec").text(`${t.w}–${G - t.w}`);
+  });
+  wl.append("div").attr("class", "wl-axis").html("<span></span><span><span>Game 1</span><span>82</span></span><span></span>");
+})();
+</script>
+</body>
+</html>

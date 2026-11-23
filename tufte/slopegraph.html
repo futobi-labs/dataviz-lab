@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slopegraph · Data Viz Lab</title>
+<meta name="description" content="A Tufte slopegraph of a fictional city budget, FY2016 against FY2026, with label de-collision and a values or ranks toggle.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  body.tufte svg text { font-family: var(--serif); }
+  .back { margin: 0 0 1.4rem; font-size: 0.92rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  .t-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .t-row > * { min-width: 0; }
+  .mn { font-size: 0.86rem; line-height: 1.45; color: var(--text-secondary); margin: 0.2rem 0 1.4rem; padding-left: 0.85rem; border-left: 1px solid var(--axis); }
+  .mn p { margin: 0 0 0.6em; }
+  .mn b { font-weight: 400; color: var(--text-primary); }
+  .figure-title { font-style: italic; font-weight: 400; }
+  @media (min-width: 1000px) {
+    .t-row { grid-template-columns: minmax(0, 1fr) 15rem; column-gap: 3rem; align-items: start; }
+    .mn { border-left: 0; padding-left: 0; margin-top: 0.45rem; }
+  }
+  .dot-key { display: inline-block; width: 1.1em; height: 2px; vertical-align: 0.3em; margin-right: 0.35em; }
+
+  #slope svg { display: block; margin: 0 auto; overflow: visible; }
+  #slope .dept { cursor: default; transition: opacity 120ms; }
+  #slope svg.hovering .dept:not(.on) { opacity: 0.16; }
+  #slope line.slope { stroke: var(--text-muted); stroke-width: 1; }
+  #slope .up line.slope { stroke: var(--series-1); stroke-width: 2; }
+  #slope .down line.slope { stroke: var(--series-8); stroke-width: 2; }
+  #slope .dept.on:not(.up):not(.down) line.slope { stroke: var(--text-primary); stroke-width: 1.6; }
+  #slope line.lead { stroke: var(--axis); stroke-width: 0.75; }
+  #slope line.hit { stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+  #slope text.lab { font-variant-numeric: tabular-nums lining-nums; }
+  #slope text.lab .n { fill: var(--text-secondary); }
+  #slope text.lab .v { fill: var(--text-primary); }
+  #slope .up text.lab .n, #slope .down text.lab .n, #slope .dept.on text.lab .n { fill: var(--text-primary); }
+  #slope text.yr { fill: var(--text-primary); font-style: italic; }
+  #slope text.cap { fill: var(--text-muted); font-style: italic; }
+</style>
+</head>
+<body class="tufte">
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/" aria-current="true">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Edward Tufte</a></p>
+  <p class="kicker">Edward Tufte</p>
+  <h1>Slopegraph</h1>
+  <p class="lede">Fifteen departments, two fiscal years, thirty printed numbers. The slopegraph is a table that has been allowed to draw: every value is legible, and the angle of each line is the change.</p>
+
+  <div class="t-row">
+    <div class="figure" id="fig-slope">
+      <p class="figure-title">Port Avalon general fund, share of spending by department</p>
+      <p class="figure-sub" id="slope-sub">Percent of the general fund, FY2016 and FY2026. Hover or tap a line to isolate it.</p>
+      <div class="controls" role="group" aria-label="Vertical position">
+        <span>Position by</span>
+        <button type="button" data-mode="values" aria-pressed="true">Values</button>
+        <button type="button" data-mode="ranks" aria-pressed="false">Ranks</button>
+      </div>
+      <div id="slope" role="img" aria-label="Slopegraph of fifteen department budget shares, FY2016 versus FY2026"></div>
+    </div>
+    <aside class="mn">
+      <p id="note-up"></p>
+      <p id="note-down"></p>
+      <p>Labels that would collide are nudged apart by iterative relaxation; a hairline leader joins any label that had to move to the true end of its line. The lines never move, only the words.</p>
+      <p><b>Ranks</b> spaces the rows evenly, which ends collisions and turns every crossing into a visible swap, at the cost of magnitude: a 0.1 point exchange looks the same as a 4 point surge.</p>
+    </aside>
+  </div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>The form first appears in <em>The Visual Display of Quantitative Information</em> as a table-graphic of government receipts as a share of GDP for fifteen countries, 1970 and 1979. Tufte named it the slopegraph later. Fifteen rows here is a nod to that original.</li>
+      <li>It works because it is redundant in the right way: the numbers serve lookup, the slopes serve comparison, the crossings serve rank change. Three readings, one set of marks, no legend.</li>
+      <li>These are shares of a fixed whole. Every point gained by pensions and debt service was taken from somewhere, so the slopes are not independent and should not be read as fifteen separate stories.</li>
+      <li>Pushback: two endpoints hide the path. A share that spiked in FY2020 and came back reads as flat. When the middle years matter, use small multiples of the full series instead.</li>
+      <li>In value mode the label crowding at the bottom is real information, it says the small departments are close together, but it also costs legibility. Relaxation trades vertical accuracy of the labels for readability; the leaders keep that trade honest.</li>
+    </ul>
+  </div>
+  <p class="source">Source: fictional figures written by hand for this page; Port Avalon is an invented city. Each year's fifteen shares sum to 100.0 percent.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const YA = "FY2016", YB = "FY2026";
+  const D = [
+    ["Police", 21.0, 19.2], ["Fire and EMS", 12.4, 12.0], ["Schools contribution", 14.0, 12.6],
+    ["Public works", 10.6, 8.7], ["Human services", 7.8, 9.4], ["Pensions", 5.2, 9.3],
+    ["Debt service", 6.1, 8.4], ["Transit", 4.2, 3.5], ["Parks and recreation", 4.6, 3.4],
+    ["Sanitation", 3.1, 2.6], ["Housing", 2.4, 3.3], ["Libraries", 2.7, 1.8],
+    ["Courts", 2.3, 2.1], ["Technology", 1.3, 2.2], ["Planning", 2.3, 1.5],
+  ].map(([name, a, b]) => ({ name, a, b, d: Math.round((b - a) * 10) / 10 }));
+
+  // ranks (ties broken by the other year, then name, so ranks are unique)
+  D.slice().sort((p, q) => q.a - p.a || q.b - p.b || d3.ascending(p.name, q.name)).forEach((d, i) => (d.ra = i + 1));
+  D.slice().sort((p, q) => q.b - p.b || q.a - p.a || d3.ascending(p.name, q.name)).forEach((d, i) => (d.rb = i + 1));
+  D.forEach((p) => (p.cross = D.filter((q) => q !== p && Math.sign(p.ra - q.ra) !== Math.sign(p.rb - q.rb)).length));
+  const gain = d3.greatest(D, (d) => d.d), loss = d3.least(D, (d) => d.d);
+  gain.cls = "up"; loss.cls = "down";
+
+  const f1 = d3.format(".1f"), fd = d3.format("+.1f");
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  document.getElementById("note-up").innerHTML =
+    `<span class="dot-key" style="background: var(--series-1)"></span><b>${gain.name}</b> gained the most, ${fd(gain.d)} points, from ${f1(gain.a)} to ${f1(gain.b)} percent, and crossed ${plural(gain.cross, "other line")} on the way.`;
+  document.getElementById("note-down").innerHTML =
+    `<span class="dot-key" style="background: var(--series-8)"></span><b>${loss.name}</b> lost the most, ${fd(loss.d)} points, crossing ${plural(loss.cross, "other line")}.`;
+
+  /** Iterative relaxation: push overlapping neighbours apart until every gap is at least minGap. Order is preserved. */
+  function relax(items, minGap, top) {
+    items.sort((p, q) => p.t - q.t);
+    items.forEach((it) => (it.y = it.t));
+    for (let iter = 0; iter < 500; iter++) {
+      let worst = 0;
+      for (let i = 0; i < items.length - 1; i++) {
+        const p = items[i], q = items[i + 1], ov = minGap - (q.y - p.y);
+        if (ov > 0) { p.y -= ov / 2; q.y += ov / 2; worst = Math.max(worst, ov); }
+      }
+      if (items[0].y < top) items[0].y = top;
+      if (worst < 0.05) break;
+    }
+    for (let i = 1; i < items.length; i++) items[i].y = Math.max(items[i].y, items[i - 1].y + minGap - 0.05);
+  }
+
+  let mode = "values";
+  const host = document.getElementById("slope");
+  const svg = d3.select(host).append("svg");
+  const head = svg.append("g");
+  const body = svg.append("g");
+
+  function tip(d) {
+    return `<strong>${d.name}</strong><br><span class="tt-k">${YA}</span> ${f1(d.a)}%, rank ${d.ra}<br>` +
+      `<span class="tt-k">${YB}</span> ${f1(d.b)}%, rank ${d.rb}<br><span class="tt-k">Change</span> ${fd(d.d)} points`;
+  }
+
+  function render(animate) {
+    const avail = Lab.width(host);
+    const narrow = avail < 600;
+    const W = Math.min(avail, 760);
+    const fs = narrow ? 11.5 : 13.5;
+    const gap = fs * 1.2;
+    const labA = narrow ? 34 : 190, labB = narrow ? 150 : 190, lead = narrow ? 10 : 16;
+    const x1 = labA + lead, x2 = W - labB - lead;
+    const top = 42;
+    let yA, yB;
+    if (mode === "values") {
+      const H0 = narrow ? 420 : 520;
+      const y = d3.scaleLinear(d3.extent(D.flatMap((d) => [d.a, d.b])), [top + H0, top]);
+      yA = (d) => y(d.a); yB = (d) => y(d.b);
+    } else {
+      const step = Math.round(gap + 9);
+      yA = (d) => top + (d.ra - 1) * step; yB = (d) => top + (d.rb - 1) * step;
+    }
+    const LA = D.map((d) => ({ d, t: yA(d) })), LB = D.map((d) => ({ d, t: yB(d) }));
+    relax(LA, gap, top); relax(LB, gap, top);
+    LA.forEach((l) => (l.d.la = l.y)); LB.forEach((l) => (l.d.lb = l.y));
+    const H = Math.max(d3.max(LA, (l) => l.y), d3.max(LB, (l) => l.y)) + fs + 4;
+    svg.attr("width", W).attr("height", H).attr("viewBox", `0 0 ${W} ${H}`).style("font-size", fs + "px");
+
+    head.selectAll("text.yr").data([narrow ? [YA, 0, "start"] : [YA, x1 - lead, "end"], [YB, x2 + lead, "start"]]).join("text").attr("class", "yr")
+      .attr("x", (d) => d[1]).attr("y", top - 22).attr("text-anchor", (d) => d[2]).text((d) => d[0]);
+
+    const T = (sel) => (animate && !Lab.reducedMotion() ? sel.transition().duration(650).ease(d3.easeCubicInOut) : sel);
+    const g = body.selectAll("g.dept").data(D, (d) => d.name).join((enter) => {
+      const e = enter.append("g").attr("class", (d) => "dept " + (d.cls || ""));
+      e.append("line").attr("class", "lead la");
+      e.append("line").attr("class", "lead lb");
+      e.append("line").attr("class", "slope");
+      e.append("text").attr("class", "lab la").attr("text-anchor", "end").attr("dy", "0.34em");
+      e.append("text").attr("class", "lab lb").attr("text-anchor", "start").attr("dy", "0.34em");
+      e.append("line").attr("class", "hit");
+      return e;
+    });
+    g.sort((p, q) => (p.cls ? 1 : 0) - (q.cls ? 1 : 0)); // accents drawn on top
+
+    T(g.select("line.slope")).attr("x1", x1).attr("x2", x2).attr("y1", yA).attr("y2", yB);
+    g.select("line.hit").attr("x1", x1).attr("x2", x2).attr("y1", yA).attr("y2", yB);
+    T(g.select("line.lead.la")).attr("x1", x1 - 2).attr("y1", yA).attr("x2", x1 - lead + 3).attr("y2", (d) => d.la)
+      .style("opacity", (d) => (Math.abs(d.la - yA(d)) > 1.5 ? 1 : 0));
+    T(g.select("line.lead.lb")).attr("x1", x2 + 2).attr("y1", yB).attr("x2", x2 + lead - 3).attr("y2", (d) => d.lb)
+      .style("opacity", (d) => (Math.abs(d.lb - yB(d)) > 1.5 ? 1 : 0));
+
+    const val = (d, side) => (mode === "values" ? f1(side === "a" ? d.a : d.b) : String(side === "a" ? d.ra : d.rb));
+    g.select("text.la").each(function (d) {
+      const t = d3.select(this); t.selectAll("tspan").remove();
+      if (!narrow) t.append("tspan").attr("class", "n").text(d.name + " ");
+      t.append("tspan").attr("class", "v").text(val(d, "a"));
+    });
+    g.select("text.lb").each(function (d) {
+      const t = d3.select(this); t.selectAll("tspan").remove();
+      t.append("tspan").attr("class", "v").text(val(d, "b"));
+      t.append("tspan").attr("class", "n").text(" " + d.name);
+    });
+    T(g.select("text.la")).attr("x", x1 - lead).attr("y", (d) => d.la);
+    T(g.select("text.lb")).attr("x", x2 + lead).attr("y", (d) => d.lb);
+
+    g.on("pointerenter", function (e, d) { svg.classed("hovering", true); g.classed("on", (q) => q === d); Lab.tooltip.show(e, tip(d)); })
+      .on("pointermove", (e, d) => Lab.tooltip.show(e, tip(d)))
+      .on("pointerleave", () => { svg.classed("hovering", false); g.classed("on", false); Lab.tooltip.hide(); });
+    svg.on("click", (e) => { if (e.target === svg.node()) { svg.classed("hovering", false); g.classed("on", false); } });
+
+    document.getElementById("slope-sub").textContent = mode === "values"
+      ? `Percent of the general fund, ${YA} and ${YB}. Hover or tap a line to isolate it.`
+      : `Rank by share of the general fund, ${YA} and ${YB}, 1 is largest. Hover or tap a line to isolate it.`;
+  }
+
+  d3.selectAll("#fig-slope [data-mode]").on("click", function () {
+    if (mode === this.dataset.mode) return;
+    mode = this.dataset.mode;
+    d3.selectAll("#fig-slope [data-mode]").attr("aria-pressed", function () { return String(this.dataset.mode === mode); });
+    render(true);
+  });
+  Lab.responsive(() => render(false));
+
+  Lab.tableView("#fig-slope", [
+    { key: "name", label: "Department" },
+    { key: "a", label: YA + " %", align: "r", format: f1 },
+    { key: "b", label: YB + " %", align: "r", format: f1 },
+    { key: "d", label: "Change, pts", align: "r", format: fd },
+    { key: "ra", label: "Rank " + YA, align: "r" },
+    { key: "rb", label: "Rank " + YB, align: "r" },
+  ], D.slice().sort((p, q) => q.b - p.b));
+})();
+</script>
+</body>
+</html>
