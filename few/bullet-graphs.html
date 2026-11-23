@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bullet graphs · Data Viz Lab</title>
+<meta name="description" content="Stephen Few's bullet graph built to his specification for six KPIs, with a vertical variant and a footprint comparison against speedometer gauges.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="few.js"></script>
+<style>
+  .back { font-size: 0.9rem; color: var(--text-secondary); }
+  .key { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.82rem; color: var(--text-secondary); margin: 0 0 10px; }
+  .key svg { display: inline-block; vertical-align: -3px; margin-right: 6px; }
+  .compare-table { margin-top: 14px; overflow-x: auto; }
+  .compare-table table.lab { font-size: 0.88rem; min-width: 100%; }
+  .compare-table td:first-child { color: var(--text-secondary); }
+  .panel-title { fill: var(--text-primary); font: 600 12px var(--sans); }
+  .panel-sub { fill: var(--text-muted); font: 11px var(--sans); }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/" aria-current="true">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Stephen Few</a></p>
+  <p class="kicker">Stephen Few</p>
+  <h1>Bullet graphs</h1>
+  <p class="lede">Few designed the bullet graph in 2005 to do a gauge's job in a fraction of the space: one measure, one target, a few qualitative ranges, on a straight scale the eye can actually read. Here it is to spec, six KPIs stacked on a shared layout, each on its own scale.</p>
+
+  <section class="figure" id="fig-bullets" aria-labelledby="fig1-title">
+    <p class="figure-title" id="fig1-title">Six KPIs, year to date through October</p>
+    <p class="figure-sub">Each row has its own scale because the units differ. All scales start at zero.</p>
+    <div class="controls" role="group" aria-label="Orientation">
+      <span>Orientation</span>
+      <button type="button" data-orient="h" aria-pressed="true">Horizontal</button>
+      <button type="button" data-orient="v" aria-pressed="false">Vertical</button>
+    </div>
+    <div class="key" id="key"></div>
+    <div id="bullets"></div>
+    <div id="bullets-table"></div>
+  </section>
+
+  <section class="figure" id="fig-compare" aria-labelledby="fig2-title">
+    <p class="figure-title" id="fig2-title">The same six KPIs, as the space a gauge would take</p>
+    <p class="figure-sub">Footprints drawn to one scale. The gauges are outlines only: a typical BI dial at 180 by 170 px including its label and readout, against a compact bullet graph at 300 by 40 px including its label.</p>
+    <div id="compare"></div>
+    <div class="compare-table" id="compare-table"></div>
+  </section>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>This follows Few's Bullet Graph Design Specification: two to five qualitative ranges in intensities of one hue (three grays here, darkest for poor), the featured measure as a bar one third the band height, the comparative measure as a perpendicular tick, and a quantitative scale that starts at zero because the bar encodes length.</li>
+      <li>Stacking works because every row shares the same geometry: label column, band height, origin. The eye compares each bar to its own target and bands, not to its neighbors. Sorting by value is meaningless across mixed units, so the order is fixed and logical instead.</li>
+      <li>Information Dashboard Design spends pages on why gauges fail: the circle wastes the corners, the arc is harder to judge than a line, and most products omit the target. The footprint figure is the argument in pixels.</li>
+      <li>Arguable: the qualitative bands are someone's opinion baked into the chart. If "good" is not agreed, the gray bands mislead more quietly than a red light would, and a plain bar with a target tick is the more honest graph.</li>
+      <li>The vertical variant is in the spec and useful in a row of columns, but horizontal wins whenever labels are words: they read left to right next to the scale.</li>
+    </ul>
+  </div>
+  <p class="source">Data: synthetic, generated in-page with Lab.rng(42) (few/few.js). Gauge footprint is a stated assumption, not a measurement of any product.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  const kpis = Few.kpis();
+  let orient = "h";
+
+  // Key: drawn with the same marks as the chart.
+  (function key() {
+    const el = d3.select("#key");
+    const item = (draw, text) => {
+      const span = el.append("span");
+      const s = span.append("svg").attr("width", 26).attr("height", 14).attr("aria-hidden", "true");
+      draw(s);
+      span.append("span").text(text);
+    };
+    item((s) => s.append("rect").attr("y", 5).attr("width", 26).attr("height", 4).style("fill", "var(--text-primary)"), "Actual (featured measure)");
+    item((s) => s.append("rect").attr("x", 12).attr("y", 1).attr("width", 3).attr("height", 12).style("fill", "var(--text-primary)"), "Target (comparative measure)");
+    item((s) => {
+      Few.bandFills.forEach((f, i) => s.append("rect").attr("x", i * 9).attr("width", 9).attr("height", 14).style("fill", f));
+    }, "Poor, satisfactory, good");
+  })();
+
+  function drawH(host, W) {
+    const narrow = W < 560;
+    const labelW = narrow ? 0 : Math.min(190, Math.round(W * 0.26));
+    const gap = narrow ? 10 : 14, padR = 22;   // narrow: gap keeps the "0" tick label inside the svg
+    const gx = labelW + gap, gw = Math.max(120, W - gx - padR);
+    const bh = narrow ? 20 : 24;
+    const top = narrow ? 18 : 0;               // room for the label above the band on narrow screens
+    const rowH = top + bh + 18 + (narrow ? 16 : 18);
+    const ticks = Math.max(3, Math.min(7, Math.floor(gw / 70)));
+    const svg = d3.select(host).append("svg")
+      .attr("width", W).attr("height", rowH * kpis.length)
+      .attr("role", "img").attr("aria-label", "Bullet graphs for six KPIs, horizontal");
+
+    kpis.forEach((k, i) => {
+      const row = svg.append("g").attr("transform", `translate(0,${i * rowH})`);
+      if (narrow) {
+        const t = row.append("text").attr("x", 0).attr("y", 12);
+        t.append("tspan").attr("class", "label-strong").text(k.name);
+        t.append("tspan").attr("class", "label").attr("dx", 6).style("fill", "var(--text-muted)").text(k.units);
+      } else {
+        row.append("text").attr("class", "label-strong").attr("x", labelW).attr("y", bh / 2 + 1)
+          .attr("text-anchor", "end").style("font-size", "13px").text(k.name);
+        row.append("text").attr("class", "label").attr("x", labelW).attr("y", bh / 2 + 15)
+          .attr("text-anchor", "end").style("fill", "var(--text-muted)").style("font-size", "11px").text(k.units);
+      }
+      const g = row.append("g").attr("transform", `translate(${gx},${top})`);
+      Few.bulletH(g, k, { width: gw, bandH: bh, ticks });
+      // generous hit target: the whole row
+      row.append("rect").attr("x", 0).attr("y", 0).attr("width", W).attr("height", rowH - 6)
+        .style("fill", "transparent").datum(k).call(Few.hover, (d) => Few.kpiTip(d));
+    });
+  }
+
+  function drawV(host, W) {
+    const n = kpis.length;
+    const minCol = 100;
+    const cols = Math.max(1, Math.min(n, Math.floor(W / minCol)));
+    const colW = W / cols, rows = Math.ceil(n / cols);
+    const head = 40, h = 200, foot = 18, bw = 24, axisW = 42;
+    const rowH = head + h + foot;
+    const svg = d3.select(host).append("svg")
+      .attr("width", W).attr("height", rowH * rows)
+      .attr("role", "img").attr("aria-label", "Bullet graphs for six KPIs, vertical");
+    kpis.forEach((k, i) => {
+      const c = i % cols, r = Math.floor(i / cols);
+      const bandX = colW / 2 + (axisW - bw) / 2;     // axis + band centered in the column
+      const col = svg.append("g").attr("transform", `translate(${c * colW},${r * rowH})`);
+      col.append("text").attr("class", "label-strong").attr("x", colW / 2).attr("y", 13)
+        .attr("text-anchor", "middle").text(k.short);
+      col.append("text").attr("class", "label").attr("x", colW / 2).attr("y", 28)
+        .attr("text-anchor", "middle").style("fill", "var(--text-muted)").style("font-size", "11px").text(k.unitsShort);
+      const g = col.append("g").attr("transform", `translate(${bandX},${head})`);
+      Few.bulletV(g, k, { height: h, bandW: bw, ticks: 5 });
+      col.append("rect").attr("x", 2).attr("y", 0).attr("width", colW - 4).attr("height", rowH - 4)
+        .style("fill", "transparent").datum(k).call(Few.hover, (d) => Few.kpiTip(d));
+    });
+  }
+
+  function drawBullets() {
+    const host = document.getElementById("bullets");
+    host.innerHTML = "";
+    const W = Lab.width(host);
+    (orient === "h" ? drawH : drawV)(host, W);
+  }
+
+  Lab.tableView(document.getElementById("bullets-table"), [
+    { key: "name", label: "KPI" },
+    { key: "units", label: "Units" },
+    { key: "value", label: "Actual", align: "r", format: (v, r) => r.fmt(v) },
+    { key: "target", label: "Target", align: "r", format: (v, r) => r.fmt(v) },
+    { key: "pctT", label: "% of target", align: "r", format: Lab.fmt.pct },
+    { key: "p", label: "Poor below", align: "r", format: (v, r) => r.fmt(v) },
+    { key: "s", label: "Good from", align: "r", format: (v, r) => r.fmt(v) },
+    { key: "max", label: "Scale max", align: "r", format: (v, r) => r.fmt(v) },
+    { key: "band", label: "Band" },
+  ], kpis.map((k) => Object.assign({}, k, { pctT: k.value / k.target, p: k.ranges[0], s: k.ranges[1] })),
+  "Show the KPIs as a table");
+
+  document.querySelectorAll("[data-orient]").forEach((b) => b.addEventListener("click", () => {
+    orient = b.dataset.orient;
+    document.querySelectorAll("[data-orient]").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+    drawBullets();
+  }));
+
+  // ---------- footprint comparison ----------
+  const GAUGE = { w: 180, h: 170 }, BULLET = { w: 300, h: 40 }, SCREEN = { w: 1200, h: 800 };
+  const gaugeArea = GAUGE.w * GAUGE.h, bulletArea = BULLET.w * BULLET.h, screenArea = SCREEN.w * SCREEN.h;
+  const perScreen = (f) => Math.floor(SCREEN.w / f.w) * Math.floor(SCREEN.h / f.h);
+
+  function drawCompare() {
+    const host = document.getElementById("compare");
+    host.innerHTML = "";
+    const W = Lab.width(host);
+    const g8 = 8, leftW = 3 * GAUGE.w + 2 * g8, leftH = 2 * GAUGE.h + g8;
+    const rightW = BULLET.w, rightH = kpis.length * BULLET.h, between = 48, headH = 34;
+    const side = W >= leftW + between + rightW;
+    const s = side ? 1 : Math.min(1, W / leftW);
+    const H = side ? headH + leftH * s : headH + leftH * s + 24 + headH + rightH * s;
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", "Footprint of six gauges compared with six bullet graphs at the same scale");
+
+    // gauges: outlines only
+    const L = svg.append("g");
+    L.append("text").attr("class", "panel-title").attr("y", 12).text("Six gauges");
+    L.append("text").attr("class", "panel-sub").attr("y", 27).text(`${Lab.fmt.int(6 * gaugeArea)} px², ${Lab.fmt.pct1(6 * gaugeArea / screenArea)} of a 1200 × 800 screen`);
+    kpis.forEach((k, i) => {
+      const c = i % 3, r = Math.floor(i / 3);
+      const x = c * (GAUGE.w + g8) * s, y = headH + r * (GAUGE.h + g8) * s;
+      const b = L.append("g").attr("transform", `translate(${x},${y})`);
+      b.append("rect").attr("x", 0.5).attr("y", 0.5).attr("width", GAUGE.w * s - 1).attr("height", GAUGE.h * s - 1)
+        .style("fill", "var(--surface-2)").style("stroke", "var(--axis)").style("stroke-dasharray", "3 3");
+      b.append("text").attr("class", "label").attr("x", GAUGE.w * s / 2).attr("y", GAUGE.h * s / 2 - 2)
+        .attr("text-anchor", "middle").text(k.name);
+      b.append("text").attr("class", "label").attr("x", GAUGE.w * s / 2).attr("y", GAUGE.h * s / 2 + 13)
+        .attr("text-anchor", "middle").style("fill", "var(--text-muted)").style("font-size", "11px").text("180 × 170");
+    });
+
+    // bullets: real marks inside their footprint
+    const rx = side ? leftW + between : 0, ry = side ? 0 : headH + leftH * s + 24;
+    const R = svg.append("g").attr("transform", `translate(${rx},${ry})`);
+    R.append("text").attr("class", "panel-title").attr("y", 12).text("Six bullet graphs");
+    R.append("text").attr("class", "panel-sub").attr("y", 27).text(`${Lab.fmt.int(6 * bulletArea)} px², ${Lab.fmt.pct1(6 * bulletArea / screenArea)} of the same screen`);
+    const showText = s >= 0.8;
+    const labW = showText ? 92 : 0, bh = Math.max(8, 16 * s);
+    kpis.forEach((k, i) => {
+      const y = headH + i * BULLET.h * s;
+      const b = R.append("g").attr("transform", `translate(0,${y})`);
+      b.append("rect").attr("x", 0.5).attr("y", 0.5).attr("width", BULLET.w * s - 1).attr("height", BULLET.h * s - 1)
+        .style("fill", "none").style("stroke", "var(--grid)");
+      if (showText) b.append("text").attr("class", "label").attr("x", labW - 6).attr("y", 4 + bh / 2 + 4)
+        .attr("text-anchor", "end").style("font-size", "11px").text(k.short);
+      const g = b.append("g").attr("transform", `translate(${labW + 4 * s},${4 * s})`);
+      Few.bulletH(g, k, { width: (BULLET.w - 14) * s - labW, bandH: bh, axis: showText, ticks: 3 });
+      g.selectAll(".axis text").style("font-size", "9px");
+      b.append("rect").attr("width", BULLET.w * s).attr("height", BULLET.h * s).style("fill", "transparent")
+        .datum(k).call(Few.hover, (d) => Few.kpiTip(d));
+    });
+  }
+
+  // side-by-side numbers
+  (function compareTable() {
+    const rows = [
+      ["Footprint per KPI", `${GAUGE.w} × ${GAUGE.h} px`, `${BULLET.w} × ${BULLET.h} px`],
+      ["Area per KPI", `${Lab.fmt.int(gaugeArea)} px²`, `${Lab.fmt.int(bulletArea)} px²`],
+      ["Six KPIs, share of 1200 × 800", Lab.fmt.pct1(6 * gaugeArea / screenArea), Lab.fmt.pct1(6 * bulletArea / screenArea)],
+      ["KPIs that fit one screen", Lab.fmt.int(perScreen(GAUGE)), Lab.fmt.int(perScreen(BULLET))],
+      ["Encodes a target", "Rarely", "Always"],
+      ["Qualitative ranges", "Colored arc segments", "Gray bands"],
+      ["Value read from", "Angle on an arc", "Length on a line"],
+    ];
+    const t = d3.select("#compare-table").append("table").attr("class", "lab");
+    const hr = t.append("thead").append("tr");
+    hr.append("th").text("");
+    hr.append("th").attr("class", "r").text("Gauge");
+    hr.append("th").attr("class", "r").text("Bullet graph");
+    const tb = t.append("tbody");
+    rows.forEach((r) => {
+      const tr = tb.append("tr");
+      tr.append("td").text(r[0]);
+      tr.append("td").attr("class", "r").text(r[1]);
+      tr.append("td").attr("class", "r").text(r[2]);
+    });
+    d3.select("#compare-table").append("p").attr("class", "source")
+      .text(`Bullet graphs use ${(gaugeArea / bulletArea).toFixed(1)} times less area per KPI and carry more information in it.`);
+  })();
+
+  Lab.responsive(() => { drawBullets(); drawCompare(); });
+})();
+</script>
+</body>
+</html>

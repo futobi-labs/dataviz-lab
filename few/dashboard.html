@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales dashboard · Data Viz Lab</title>
+<meta name="description" content="A one-screen sales dashboard in the spirit of Stephen Few's Information Dashboard Design: bullet graphs, sparklines, a ranked bar chart, a trend line and a compact table.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="few.js"></script>
+<style>
+  .back { font-size: 0.9rem; color: var(--text-secondary); }
+  .dash { display: grid; gap: 14px; }
+  .dash-head { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; align-items: baseline; justify-content: space-between;
+    border-bottom: 1px solid var(--grid); padding-bottom: 8px; }
+  .dash-head h2 { margin: 0; font-size: 1.05rem; }
+  .dash-head span { font-size: 0.82rem; color: var(--text-muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+  .tile { border-top: 1px solid var(--grid); padding-top: 8px; min-width: 0; }
+  .tile .t-name { font-size: 0.82rem; font-weight: 600; }
+  .tile .t-units { font-size: 0.75rem; color: var(--text-muted); margin-left: 6px; font-weight: 400; }
+  .tile .t-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0 4px; }
+  .tile .t-val { font-size: 1.45rem; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .tile .t-flag { font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; }
+  .tile .t-flag b { color: var(--critical); font-weight: 400; }
+  .tile .t-spark { flex: 0 0 auto; }
+  .tile .t-cap { font-size: 0.72rem; color: var(--text-muted); }
+  .panels { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 22px; }
+  @media (max-width: 980px) { .panels { grid-template-columns: 1fr 1fr; } .panels .p-table { grid-column: 1 / -1; } }
+  @media (max-width: 640px) { .panels { grid-template-columns: 1fr; } }
+  .panel { min-width: 0; border-top: 1px solid var(--grid); padding-top: 8px; }
+  .panel h3 { margin: 0; font-size: 0.86rem; }
+  .panel .p-sub { margin: 0 0 6px; font-size: 0.76rem; color: var(--text-muted); }
+  .panel .p-sub b { color: var(--critical); font-weight: 400; }
+  table.compact { width: 100%; border-collapse: collapse; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+  table.compact th { font-weight: 600; color: var(--text-secondary); text-align: left; padding: 3px 6px 3px 0; border-bottom: 1px solid var(--axis); white-space: nowrap; }
+  table.compact td { padding: 3px 6px 3px 0; border-bottom: 1px solid var(--grid); }
+  table.compact .r { text-align: right; }
+  table.compact td.rank { color: var(--text-muted); width: 1.5em; }
+  table.compact td.neg { font-weight: 600; }
+  .twins { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 22px; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/" aria-current="true">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Stephen Few</a></p>
+  <p class="kicker">Stephen Few</p>
+  <h1>One-screen sales dashboard</h1>
+  <p class="lede">Few's definition is strict: the most important information needed to achieve one or more objectives, consolidated on a single screen so it can be monitored at a glance. Gray carries the context. Color appears only where something needs a person to act.</p>
+
+  <section class="figure" aria-labelledby="dash-title">
+    <div class="dash" id="dash">
+      <div class="dash-head">
+        <h2 id="dash-title">Sales, year to date through October 2026</h2>
+        <span>Targets are annual plan prorated to October. All figures synthetic.</span>
+      </div>
+      <div class="tiles" id="tiles"></div>
+      <div class="panels">
+        <div class="panel" id="p-regions">
+          <h3>Revenue by region, YTD</h3>
+          <p class="p-sub">Bars ranked by revenue, tick is plan; right column is % of plan. <b>▼</b> marks more than 10% below plan.</p>
+          <div class="chart"></div>
+        </div>
+        <div class="panel" id="p-trend">
+          <h3>Monthly revenue, this year against last</h3>
+          <p class="p-sub">US$ thousands. One scale for both years.</p>
+          <div class="chart"></div>
+        </div>
+        <div class="panel p-table" id="p-products">
+          <h3>Top products, YTD</h3>
+          <p class="p-sub">Ranked by revenue. Declines on prior year in bold.</p>
+          <div class="chart"></div>
+        </div>
+      </div>
+    </div>
+    <div class="twins" id="twins"></div>
+  </section>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>Information Dashboard Design's thirteen common mistakes are the checklist here: no scrolling to see the whole, no gauges, no decoration, no color without meaning, no chart that needs a legend to decode. The KPI row is bullet graph plus sparkline plus number, Few's own combination for "where are we, how did we get here, how far from target".</li>
+      <li>Two hues only. Red flags status and always travels with a ▼ and a label, so it survives grayscale printing and color-vision deficiency. Everything else is gray or near-black, which is why the red is noticed in under a second.</li>
+      <li>The region bars are sorted by revenue, not by plan attainment. That keeps the ranking honest about size while the right column and the red flag carry attainment. Sorting by attainment is defensible too; pick the one the reader acts on.</li>
+      <li>The trend line has no zero baseline. Lines encode position and slope, not length, and Few allows the scale to fit the data. Bars on the same page do start at zero.</li>
+      <li>Arguable: prorating an annual plan evenly across months assumes no seasonality, which flatters the first half and punishes the fourth quarter. A real dashboard should use a phased plan.</li>
+    </ul>
+  </div>
+  <p class="source">Data: synthetic, generated in-page with Lab.rng(42) for the KPIs (few/few.js) and Lab.rng(2026) for months, regions and products.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  const K = Few.kpis();
+  const byId = Object.fromEntries(K.map((k) => [k.id, k]));
+  const rand = Lab.rng(2026);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const k$ = (v) => "$" + Lab.fmt.int(v) + "K";
+  const signPct = (v) => (v >= 0 ? "+" : "−") + d3.format(".1%")(Math.abs(v));
+
+  // ---------- data ----------
+  // Monthly revenue. Prior year: full 12 months. This year: Jan to Oct, rescaled to sum to the Revenue KPI.
+  const season = months.map((m, i) => 1 + 0.10 * Math.sin((i - 2) / 12 * 2 * Math.PI) + (i >= 10 ? 0.12 : 0));
+  const py = season.map((s) => 268 * s * (1 + 0.03 * Lab.randn(rand)));
+  const cyRaw = season.slice(0, 10).map((s, i) => 275 * s * (1 + 0.004 * i) * (1 + 0.035 * Lab.randn(rand)));
+  const cyScale = byId.rev.value / d3.sum(cyRaw);
+  const cy = cyRaw.map((v) => v * cyScale);
+  const trend = months.map((m, i) => ({ month: m, cy: i < 10 ? cy[i] : null, py: py[i] }));
+
+  // Regions: revenue sums to the Revenue KPI. Two regions sit well under plan.
+  const regionNames = ["Northeast", "Mid-Atlantic", "Southeast", "Midwest", "South Central", "Mountain", "Pacific NW", "California"];
+  const weights = regionNames.map(() => 0.6 + rand());
+  const wsum = d3.sum(weights);
+  const lagging = new Set(["Mid-Atlantic", "Mountain"]);
+  const regions = regionNames.map((name, i) => {
+    const revenue = byId.rev.value * weights[i] / wsum;
+    const att = lagging.has(name) ? 0.82 + 0.05 * rand() : 0.95 + 0.12 * rand();
+    return { name, revenue, plan: revenue / att, att };
+  }).sort((a, b) => b.revenue - a.revenue);
+  // Region plans add up to the Revenue KPI's target.
+  const planScale = byId.rev.target / d3.sum(regions, (r) => r.plan);
+  regions.forEach((r) => { r.plan *= planScale; r.att = r.revenue / r.plan; r.flag = r.att < 0.9; });
+
+  // Products: top 8 of a long tail.
+  const productNames = ["Core Server S2", "Cloud Seat Pro", "Edge Switch 48", "Support Plus", "Backup Suite",
+    "Field Install", "Rack Kit R4", "Sensor Pack"];
+  const shares = productNames.map((n, i) => 0.16 * Math.pow(0.8, i) * (0.9 + 0.2 * rand()));
+  const products = productNames.map((name, i) => ({
+    name, revenue: byId.rev.value * shares[i], share: shares[i],
+    vsPY: 0.06 + 0.09 * Lab.randn(rand),
+  })).sort((a, b) => b.revenue - a.revenue);
+
+  // ---------- KPI tiles ----------
+  const tileDefs = [
+    { k: byId.rev, spark: py.slice(10).concat(cy), cap: "Monthly, Nov to Oct" },
+    { k: byId.margin, spark: byId.margin.monthly, cap: "Monthly margin, 12 months" },
+    { k: byId.cust, spark: byId.cust.monthly.map((v, i, a) => v / 10), cap: "New per month, 12 months" },
+    { k: byId.order, spark: byId.order.monthly, cap: "Monthly average, 12 months" },
+  ];
+  const tiles = d3.select("#tiles").selectAll(".tile").data(tileDefs).join("div").attr("class", "tile");
+  tiles.each(function (d) {
+    const t = d3.select(this), k = d.k;
+    const head = t.append("div");
+    head.append("span").attr("class", "t-name").text(k.name);
+    head.append("span").attr("class", "t-units").text(k.units);
+    const row = t.append("div").attr("class", "t-row");
+    const left = row.append("div");
+    left.append("div").attr("class", "t-val").text(k.fmt(k.value));
+    if (k.band === "Poor") {
+      const f = left.append("div").attr("class", "t-flag");
+      f.append("b").attr("aria-hidden", "true").text("▼ ");
+      f.append("span").text(`Poor: target ${k.fmt(k.target)}`);
+    } else {
+      left.append("div").attr("class", "t-flag").text(`${Lab.fmt.pct(k.value / k.target)} of target ${k.fmt(k.target)}`);
+    }
+    const sp = row.append("div").attr("class", "t-spark");
+    sp.append("svg").attr("width", 96).attr("height", 30).attr("role", "img")
+      .attr("aria-label", `${k.name} sparkline, ${d.cap}`)
+      .call((s) => Few.spark(s, d.spark, 96, 30));
+    sp.append("div").attr("class", "t-cap").text(d.cap);
+    t.append("div").attr("class", "t-bullet");
+  });
+
+  function drawTiles() {
+    tiles.each(function (d) {
+      const host = this.querySelector(".t-bullet");
+      host.innerHTML = "";
+      const W = Math.max(160, Lab.width(host));
+      const svg = d3.select(host).append("svg").attr("width", W).attr("height", 36)
+        .attr("role", "img").attr("aria-label", `${d.k.name} bullet graph`);
+      const g = svg.append("g").attr("transform", "translate(10,2)");   // room for the "0" tick label
+      Few.bulletH(g, d.k, { width: W - 28, bandH: 16, ticks: Math.max(3, Math.floor(W / 64)) });
+      svg.append("rect").attr("width", W).attr("height", 36).style("fill", "transparent")
+        .datum(d.k).call(Few.hover, (k) => Few.kpiTip(k));
+    });
+  }
+
+  // ---------- regions: ranked bars ----------
+  function drawRegions() {
+    const host = document.querySelector("#p-regions .chart");
+    host.innerHTML = "";
+    const W = Lab.width(host);
+    const labelW = 92, rightW = 58, rowH = 24, bh = 12, top = 4, axisH = 20;
+    const bw = Math.max(80, W - labelW - rightW);
+    const H = top + regions.length * rowH + axisH;
+    const x = d3.scaleLinear([0, d3.max(regions, (r) => Math.max(r.revenue, r.plan))], [0, bw]).nice();
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", "Revenue by region, ranked, with plan and percent of plan");
+    const g = svg.append("g").attr("transform", `translate(${labelW},${top})`);
+    g.append("g").attr("class", "grid").attr("transform", `translate(0,${regions.length * rowH})`)
+      .call(d3.axisBottom(x).ticks(Math.max(2, Math.floor(bw / 60))).tickSize(-regions.length * rowH).tickFormat(""));
+    g.append("g").attr("class", "axis").attr("transform", `translate(0,${regions.length * rowH})`)
+      .call(d3.axisBottom(x).ticks(Math.max(2, Math.floor(bw / 60))).tickFormat((v) => "$" + v + "K").tickSize(3).tickSizeOuter(0))
+      .call((a) => a.select(".domain").remove());
+    const rows = g.selectAll("g.r").data(regions).join("g").attr("class", "r")
+      .attr("transform", (d, i) => `translate(0,${i * rowH})`);
+    rows.append("text").attr("class", (d) => (d.flag ? "label-strong" : "label")).attr("x", -8).attr("y", rowH / 2 + 4)
+      .attr("text-anchor", "end").text((d) => d.name);
+    rows.append("rect").attr("y", (rowH - bh) / 2).attr("height", bh).attr("width", (d) => x(d.revenue))
+      .style("fill", (d) => (d.flag ? "var(--critical)" : "var(--text-muted)"));
+    rows.append("rect").attr("x", (d) => x(d.plan) - 1).attr("y", (rowH - bh) / 2 - 3).attr("width", 2).attr("height", bh + 6)
+      .style("fill", "var(--text-primary)");
+    const pct = rows.append("text").attr("x", bw + rightW).attr("y", rowH / 2 + 4).attr("text-anchor", "end")
+      .attr("class", (d) => (d.flag ? "label-strong" : "label")).style("font-variant-numeric", "tabular-nums");
+    pct.filter((d) => d.flag).append("tspan").style("fill", "var(--critical)").text("▼ ");
+    pct.append("tspan").text((d) => Lab.fmt.pct(d.att));
+    rows.append("rect").attr("x", -labelW).attr("width", labelW + bw + rightW).attr("height", rowH).style("fill", "transparent")
+      .call(Few.hover, (d) => `<strong>${d.name}</strong><br><span class="tt-k">Revenue</span> ${k$(d.revenue)}<br>` +
+        `<span class="tt-k">Plan</span> ${k$(d.plan)}<br><span class="tt-k">Attainment</span> ${Lab.fmt.pct1(d.att)}` +
+        (d.flag ? "<br>More than 10% below plan" : ""));
+  }
+
+  // ---------- trend: one axis, two years ----------
+  function drawTrend() {
+    const host = document.querySelector("#p-trend .chart");
+    host.innerHTML = "";
+    const W = Lab.width(host), H = 232;
+    const m = { t: 8, r: 54, b: 22, l: 40 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const x = d3.scalePoint(months, [0, iw]);
+    const vals = py.concat(cy);
+    const y = d3.scaleLinear([d3.min(vals) * 0.94, d3.max(vals) * 1.03], [ih, 0]).nice();
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", "Monthly revenue this year against prior year");
+    const g = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+    g.append("g").attr("class", "grid").call(d3.axisLeft(y).ticks(4).tickSize(-iw).tickFormat(""));
+    g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(4).tickSize(0).tickPadding(6).tickFormat((v) => "$" + v))
+      .call((a) => a.select(".domain").remove());
+    const every = iw < 300 ? 2 : 1;
+    g.append("g").attr("class", "axis").attr("transform", `translate(0,${ih})`)
+      .call(d3.axisBottom(x).tickValues(months.filter((d, i) => i % every === 0)).tickSize(3).tickSizeOuter(0))
+      .call((a) => a.select(".domain").style("stroke", "var(--axis)"));
+    const line = (key) => d3.line().defined((d) => d[key] != null).x((d) => x(d.month)).y((d) => y(d[key]));
+    g.append("path").datum(trend).attr("d", line("py"))
+      .style("fill", "none").style("stroke", "var(--text-muted)").style("stroke-width", 1.25);
+    g.append("path").datum(trend).attr("d", line("cy"))
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 2);
+    // direct labels at line ends, nudged apart if they would collide
+    const yPY = y(py[11]), yCY = y(cy[9]);
+    g.append("text").attr("class", "label").attr("x", iw + 6).attr("y", yPY + 4).text("2025");
+    g.append("circle").attr("cx", x("Oct")).attr("cy", yCY).attr("r", 2.5).style("fill", "var(--text-primary)");
+    const above = cy[9] >= py[9];                 // keep the label off the prior-year line
+    g.append("text").attr("class", "label-strong").attr("x", x("Oct")).attr("y", above ? yCY - 9 : yCY + 17)
+      .attr("text-anchor", "middle").text("2026");
+    // hover
+    const rule = g.append("line").attr("y1", 0).attr("y2", ih).style("stroke", "var(--axis)").style("opacity", 0);
+    g.append("rect").attr("width", iw + 20).attr("x", -10).attr("height", ih).style("fill", "transparent")
+      .on("pointermove", (event) => {
+        const [mx] = d3.pointer(event);
+        const i = Math.max(0, Math.min(11, Math.round(mx / x.step())));
+        const d = trend[i];
+        if (!d) return;
+        rule.attr("x1", x(d.month)).attr("x2", x(d.month)).style("opacity", 1);
+        Lab.tooltip.show(event, `<strong>${d.month}</strong><br>` +
+          (d.cy != null ? `<span class="tt-k">2026</span> ${k$(d.cy)} (${signPct(d.cy / d.py - 1)})<br>` : "") +
+          `<span class="tt-k">2025</span> ${k$(d.py)}`);
+      })
+      .on("pointerleave", () => { rule.style("opacity", 0); Lab.tooltip.hide(); });
+  }
+
+  // ---------- products table ----------
+  (function drawProducts() {
+    const host = d3.select("#p-products .chart");
+    const t = host.append("table").attr("class", "compact");
+    const hr = t.append("thead").append("tr");
+    [["", ""], ["Product", ""], ["Revenue", "r"], ["vs PY", "r"], ["Share", "r"]].forEach(([h, c]) =>
+      hr.append("th").attr("class", c).text(h));
+    const tb = t.append("tbody");
+    products.forEach((p, i) => {
+      const tr = tb.append("tr");
+      tr.append("td").attr("class", "rank").text(i + 1);
+      tr.append("td").text(p.name);
+      tr.append("td").attr("class", "r").text(k$(p.revenue));
+      tr.append("td").attr("class", "r" + (p.vsPY < 0 ? " neg" : "")).text(signPct(p.vsPY));
+      tr.append("td").attr("class", "r").text(Lab.fmt.pct1(p.share));
+    });
+    const top = d3.sum(products, (p) => p.revenue);
+    const foot = t.append("tfoot").append("tr");
+    foot.append("td");
+    foot.append("td").style("color", "var(--text-secondary)").text("Top 8 of all products");
+    foot.append("td").attr("class", "r").text(k$(top));
+    foot.append("td");
+    foot.append("td").attr("class", "r").text(Lab.fmt.pct1(top / byId.rev.value));
+  })();
+
+  // ---------- table twins ----------
+  const twins = document.getElementById("twins");
+  const tv = (cols, rows, sum) => { const d = document.createElement("div"); twins.appendChild(d); Lab.tableView(d, cols, rows, sum); };
+  tv([{ key: "name", label: "KPI" }, { key: "value", label: "Actual", align: "r", format: (v, r) => r.fmt(v) },
+      { key: "target", label: "Target", align: "r", format: (v, r) => r.fmt(v) }, { key: "band", label: "Band" }],
+    tileDefs.map((d) => d.k), "KPIs as a table");
+  tv([{ key: "name", label: "Region" }, { key: "revenue", label: "Revenue", align: "r", format: k$ },
+      { key: "plan", label: "Plan", align: "r", format: k$ }, { key: "att", label: "% of plan", align: "r", format: Lab.fmt.pct1 }],
+    regions, "Regions as a table");
+  tv([{ key: "month", label: "Month" }, { key: "cy", label: "2026", align: "r", format: (v) => (v == null ? "" : k$(v)) },
+      { key: "py", label: "2025", align: "r", format: k$ }],
+    trend, "Monthly revenue as a table");
+
+  Lab.responsive(() => { drawTiles(); drawRegions(); drawTrend(); });
+})();
+</script>
+</body>
+</html>

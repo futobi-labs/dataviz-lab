@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table or graph · Data Viz Lab</title>
+<meta name="description" content="Stephen Few's Show Me the Numbers in practice: one dataset as a table for lookup, a graph for pattern, and a pie chart redesigned as a sorted bar chart.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .back { font-size: 0.9rem; color: var(--text-secondary); }
+  .tbl-wrap { overflow-x: auto; }
+  table.numbers { border-collapse: collapse; font-size: 0.86rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.numbers th, table.numbers td { padding: 4px 0 4px 18px; text-align: right; }
+  table.numbers th:first-child, table.numbers td:first-child { text-align: left; padding-left: 0; }
+  table.numbers thead th { font-weight: 600; color: var(--text-secondary); vertical-align: bottom; }
+  table.numbers thead tr.group th { border-bottom: 1px solid var(--axis); color: var(--text-primary); text-align: center; padding-bottom: 3px; }
+  table.numbers thead tr.group th.blank { border-bottom: none; }
+  table.numbers thead tr.cols th { border-bottom: 1px solid var(--axis); }
+  table.numbers tbody td { border-bottom: 1px solid var(--grid); }
+  table.numbers td.gap, table.numbers th.gap { padding-left: 30px; }
+  table.numbers tr.sub td { font-weight: 600; border-bottom: 1px solid var(--axis); }
+  table.numbers tr.sub td:first-child { color: var(--text-secondary); }
+  table.numbers tr.year td { font-weight: 650; border-bottom: none; border-top: 1px solid var(--text-secondary); }
+  table.numbers td.ex { background: var(--surface-2); font-weight: 650; }
+  table.numbers .chg { padding-right: 0.7em; }
+  table.numbers td.ex::after { content: "*"; display: inline-block; width: 0.6em; text-align: left; color: var(--text-muted); font-weight: 400; margin-right: -0.6em; }
+  .tbl-note { font-size: 0.8rem; color: var(--text-muted); margin: 8px 0 0; }
+  .why { font-size: 0.88rem; color: var(--text-secondary); margin: 10px 0 0; max-width: 72ch; }
+  .before-after { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 28px; align-items: start; }
+  @media (max-width: 700px) { .before-after { grid-template-columns: minmax(0, 1fr); } }
+  .ba-cap { font-size: 0.85rem; color: var(--text-secondary); margin: 4px 0 0; }
+  .ba-cap s { color: var(--text-muted); }
+  .ba-head { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 0 0 6px; }
+  #legend-bars[hidden] { display: none; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/" aria-current="true">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Stephen Few</a></p>
+  <p class="kicker">Stephen Few</p>
+  <h1>Table or graph</h1>
+  <p class="lede">Show Me the Numbers starts with one question: will the reader look up values, or look for a pattern? Tables serve the first, graphs the second, and most bad reports answer the question wrong. One synthetic dataset, three treatments.</p>
+
+  <h2>a. A table, for lookup</h2>
+  <section class="figure" aria-labelledby="t-title">
+    <p class="figure-title" id="t-title">Revenue by product line, 2025</p>
+    <p class="figure-sub">US$ thousands. Quarterly subtotals in bold. Exceptions are shaded.</p>
+    <div class="tbl-wrap"><table class="numbers" id="numbers"></table></div>
+    <p class="tbl-note">* Down more than 10% from the prior month.</p>
+  </section>
+
+  <h2>b. A graph, for the pattern</h2>
+  <section class="figure" aria-labelledby="g-title">
+    <p class="figure-title" id="g-title">The same twelve months, three product lines</p>
+    <p class="figure-sub">US$ thousands. Both versions share one zero-based scale so only the mark changes.</p>
+    <div class="controls" role="group" aria-label="Mark type">
+      <span>Mark</span>
+      <button type="button" data-mark="line" aria-pressed="true">Line</button>
+      <button type="button" data-mark="bar" aria-pressed="false">Bar</button>
+    </div>
+    <div class="legend" id="legend-bars" hidden></div>
+    <div id="graph"></div>
+    <p class="why" id="why"></p>
+    <div id="graph-table"></div>
+  </section>
+
+  <h2>c. A misuse, redesigned</h2>
+  <section class="figure" aria-labelledby="p-title">
+    <p class="figure-title" id="p-title">Share of 2025 revenue by sales channel</p>
+    <p class="figure-sub">Six parts of a whole. The pie shows that they add up; it cannot show how they rank.</p>
+    <div class="before-after">
+      <div>
+        <p class="ba-head">Before</p>
+        <div id="pie"></div>
+        <p class="ba-cap" id="pie-cap"></p>
+      </div>
+      <div>
+        <p class="ba-head">After</p>
+        <div id="bars"></div>
+        <p class="ba-cap">Sorted bars on a common baseline. Rank and differences read at once, values are labeled, and nothing needs a legend.</p>
+      </div>
+    </div>
+    <div id="share-table"></div>
+  </section>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>Show Me the Numbers: tables when the reader needs precise individual values or values of different units side by side; graphs when the message is in the shape, the trend, the exceptions, the relationships. The table above is designed for lookup: right-aligned tabular figures, rules only where they group, and a single quiet emphasis for exceptions.</li>
+      <li>Line versus bar is not taste. A line connects values that belong to a continuous sequence, so the slope between points is meaning, and time is the canonical case. Bars emphasize each value as a discrete amount and support comparison within a month. Same data, different question.</li>
+      <li>Few's "Save the Pies for Dessert" makes the case against the pie: we judge angle and area poorly, and judgments get worse as slices approach equal size. Position along a common scale is the most accurate encoding we have, which is what the sorted bar chart uses.</li>
+      <li>Arguable: the pie does one thing the bars do not, which is make part-of-a-whole unmistakable. For two or three slices with a single dominant one, that can be worth the imprecision. Six near-equal slices is never that case.</li>
+    </ul>
+  </div>
+  <p class="source">Data: synthetic, generated in-page with Lab.rng(11) for the monthly series and Lab.rng(5) for channel shares.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const lines = [
+    { key: "hw", name: "Hardware" },
+    { key: "sw", name: "Software" },
+    { key: "sv", name: "Services" },
+  ];
+  const int = Lab.fmt.int, k$ = (v) => "$" + int(v) + "K";
+  const signPct = (v) => (v >= 0 ? "+" : "−") + d3.format(".1%")(Math.abs(v));
+
+  // ---------- data ----------
+  const rand = Lab.rng(11);
+  const data = months.map((m, i) => {
+    const s = Math.sin((i - 2) / 12 * 2 * Math.PI);
+    return {
+      month: m,
+      hw: 420 * (1 + 0.14 * s + (i === 11 ? 0.18 : 0)) * (1 + 0.06 * Lab.randn(rand)),
+      sw: 250 * Math.pow(1.03, i) * (1 + 0.04 * Lab.randn(rand)),
+      sv: 175 * (1 + 0.05 * Lab.randn(rand)),
+    };
+  });
+  data.forEach((d, i) => {
+    d.total = d.hw + d.sw + d.sv;
+    lines.forEach((l) => { d["d" + l.key] = i === 0 ? null : d[l.key] / data[i - 1][l.key] - 1; });
+  });
+
+  // ---------- (a) the table ----------
+  (function table() {
+    const t = d3.select("#numbers");
+    const th = t.append("thead");
+    const g = th.append("tr").attr("class", "group");
+    g.append("th").attr("class", "blank");
+    g.append("th").attr("colspan", 4).text("Revenue");
+    g.append("th").attr("class", "gap").attr("colspan", 3).text("Change from prior month");
+    const c = th.append("tr").attr("class", "cols");
+    c.append("th").text("Month");
+    lines.forEach((l) => c.append("th").text(l.name));
+    c.append("th").text("Total");
+    lines.forEach((l, i) => c.append("th").attr("class", i === 0 ? "gap chg" : "chg").text(l.name));
+    const tb = t.append("tbody");
+    const sumRow = (label, rows, cls) => {
+      const tr = tb.append("tr").attr("class", cls);
+      tr.append("td").text(label);
+      lines.forEach((l) => tr.append("td").text(int(d3.sum(rows, (d) => d[l.key]))));
+      tr.append("td").text(int(d3.sum(rows, (d) => d.total)));
+      lines.forEach((l, i) => tr.append("td").attr("class", i === 0 ? "gap chg" : "chg"));
+    };
+    data.forEach((d, i) => {
+      const tr = tb.append("tr");
+      tr.append("td").text(d.month);
+      lines.forEach((l) => tr.append("td").text(int(d[l.key])));
+      tr.append("td").text(int(d.total));
+      lines.forEach((l, j) => {
+        const v = d["d" + l.key];
+        const ex = v != null && v < -0.10;
+        tr.append("td").attr("class", ["chg", j === 0 ? "gap" : "", ex ? "ex" : ""].join(" ").trim())
+          .text(v == null ? "" : signPct(v));
+      });
+      if (i % 3 === 2) sumRow("Q" + (i + 1) / 3, data.slice(i - 2, i + 1), "sub");
+    });
+    sumRow("Year", data, "year");
+  })();
+
+  // ---------- (b) line or bar ----------
+  let mark = "line";
+  const why = {
+    line: "The line wins for trend: Hardware's June peak and autumn slide, Software's steady compounding, Services flat. Slope carries the story and the three lines can be compared as shapes.",
+    bar: "The bar wins for discrete comparison: which line was largest in a given month, and by how much. It is worse for trend, because the eye has to construct each slope from the tops of separated bars.",
+  };
+  const legend = d3.select("#legend-bars");
+  lines.forEach((l, i) => {
+    const s = legend.append("span");
+    s.append("span").attr("class", "swatch").style("background", `var(--series-${i + 1})`);
+    s.append("span").text(l.name);
+  });
+
+  function drawGraph() {
+    const host = document.getElementById("graph");
+    host.innerHTML = "";
+    const W = Lab.width(host), H = W < 520 ? 260 : 300;
+    const m = { t: 10, r: mark === "line" ? 74 : 8, b: 24, l: 44 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const y = d3.scaleLinear([0, d3.max(data, (d) => Math.max(d.hw, d.sw, d.sv))], [ih, 0]).nice();
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", `Monthly revenue by product line, ${mark} chart`);
+    const g = svg.append("g").attr("transform", `translate(${m.l},${m.t})`);
+    g.append("g").attr("class", "grid").call(d3.axisLeft(y).ticks(5).tickSize(-iw).tickFormat(""));
+    g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5).tickSize(0).tickPadding(6).tickFormat((v) => "$" + v))
+      .call((a) => a.select(".domain").remove());
+
+    let xc, step;
+    if (mark === "line") {
+      const x = d3.scalePoint(months, [0, iw]).padding(0.25);
+      xc = (mo) => x(mo); step = x.step();
+      lines.forEach((l, i) => {
+        g.append("path").datum(data).attr("d", d3.line((d) => x(d.month), (d) => y(d[l.key])))
+          .style("fill", "none").style("stroke", `var(--series-${i + 1})`).style("stroke-width", 2).style("stroke-linejoin", "round");
+      });
+      // direct labels at the right end, separated by at least 14px
+      const labs = lines.map((l, i) => ({ l, i, y: y(data[11][l.key]) })).sort((a, b) => a.y - b.y);
+      for (let j = 1; j < labs.length; j++) labs[j].y = Math.max(labs[j].y, labs[j - 1].y + 14);
+      labs.forEach((d) => g.append("text").attr("class", "label").attr("x", x("Dec") + 8).attr("y", d.y + 4).text(d.l.name));
+    } else {
+      const x = d3.scaleBand(months, [0, iw]).paddingInner(0.22).paddingOuter(0.1);
+      const xi = d3.scaleBand(lines.map((l) => l.key), [0, x.bandwidth()]).padding(0.06);
+      xc = (mo) => x(mo) + x.bandwidth() / 2; step = x.step();
+      const grp = g.selectAll("g.m").data(data).join("g").attr("class", "m").attr("transform", (d) => `translate(${x(d.month)},0)`);
+      lines.forEach((l, i) => {
+        grp.append("rect").attr("x", xi(l.key)).attr("width", xi.bandwidth())
+          .attr("y", (d) => y(d[l.key])).attr("height", (d) => ih - y(d[l.key]))
+          .style("fill", `var(--series-${i + 1})`);
+      });
+    }
+    const every = iw < 360 ? 2 : 1;
+    g.append("line").attr("x1", 0).attr("x2", iw).attr("y1", ih).attr("y2", ih).style("stroke", "var(--axis)");
+    g.append("g").attr("class", "axis").selectAll("text").data(months.filter((d, i) => i % every === 0)).join("text")
+      .attr("x", (d) => xc(d)).attr("y", ih + 16).attr("text-anchor", "middle").text((d) => d);
+
+    // hover: nearest month, all three values
+    const hi = g.insert("rect", ":first-child").attr("y", 0).attr("height", ih).attr("width", step)
+      .style("fill", "var(--surface-2)").style("opacity", 0);
+    g.append("rect").attr("width", iw).attr("height", ih).style("fill", "transparent")
+      .on("pointermove", (event) => {
+        const [mx] = d3.pointer(event);
+        let best = 0;
+        months.forEach((mo, i) => { if (Math.abs(xc(mo) - mx) < Math.abs(xc(months[best]) - mx)) best = i; });
+        const d = data[best];
+        hi.attr("x", xc(d.month) - step / 2).style("opacity", 1);
+        Lab.tooltip.show(event, `<strong>${d.month} 2025</strong><br>` +
+          lines.map((l) => `<span class="tt-k">${l.name}</span> ${k$(d[l.key])}`).join("<br>") +
+          `<br><span class="tt-k">Total</span> ${k$(d.total)}`);
+      })
+      .on("pointerleave", () => { hi.style("opacity", 0); Lab.tooltip.hide(); });
+
+    document.getElementById("why").textContent = why[mark];
+    legend.node().hidden = mark !== "bar";
+  }
+
+  document.querySelectorAll("[data-mark]").forEach((b) => b.addEventListener("click", () => {
+    mark = b.dataset.mark;
+    document.querySelectorAll("[data-mark]").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+    drawGraph();
+  }));
+
+  Lab.tableView(document.getElementById("graph-table"),
+    [{ key: "month", label: "Month" }].concat(lines.map((l) => ({ key: l.key, label: l.name, align: "r", format: k$ }))),
+    data, "Show the graphed data as a table");
+
+  // ---------- (c) pie, then sorted bars ----------
+  const prand = Lab.rng(5);
+  const channels = ["Direct sales", "Distributors", "Online store", "Retail partners", "Marketplaces", "Resellers"]
+    .map((name) => ({ name, w: 1 + 0.5 * prand() }));
+  const wsum = d3.sum(channels, (c) => c.w);
+  channels.forEach((c) => { c.share = c.w / wsum; });
+  const ranked = channels.slice().sort((a, b) => b.share - a.share);
+
+  // the question the pie cannot answer: the two closest slices
+  let pair = [ranked[0], ranked[1]];
+  for (let i = 1; i < ranked.length; i++) {
+    if (ranked[i - 1].share - ranked[i].share < pair[0].share - pair[1].share) pair = [ranked[i - 1], ranked[i]];
+  }
+  const cap = document.getElementById("pie-cap");
+  cap.innerHTML = "";
+  const sEl = document.createElement("s"); sEl.textContent = "Pie chart."; cap.appendChild(sEl);
+  cap.appendChild(document.createTextNode(` Which is larger, ${pair[1].name} or ${pair[0].name}? They differ by ${d3.format(".1f")((pair[0].share - pair[1].share) * 100)} points.`));
+
+  function drawPie() {
+    const host = document.getElementById("pie");
+    host.innerHTML = "";
+    const W = Math.min(320, Lab.width(host)), H = 190, r = Math.min(62, W / 2 - 80);
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", H)
+      .attr("role", "img").attr("aria-label", "Before: the channel shares as a pie chart");
+    const g = svg.append("g").attr("transform", `translate(${W / 2},${H / 2})`);
+    const arcs = d3.pie().value((d) => d.share).sort(null)(channels);
+    const arc = d3.arc().innerRadius(0).outerRadius(r);
+    const grays = ["var(--band-1)", "var(--band-2)", "var(--band-3)"];
+    g.selectAll("path").data(arcs).join("path").attr("d", arc)
+      .style("fill", (d, i) => grays[i % 3]).style("stroke", "var(--surface-1)").style("stroke-width", 1.5);
+    const lab = d3.arc().innerRadius(r + 10).outerRadius(r + 10);
+    g.selectAll("text").data(arcs).join("text").attr("class", "label")
+      .style("fill", "var(--text-muted)").style("font-size", "11px")
+      .attr("transform", (d) => `translate(${lab.centroid(d)})`).attr("dy", "0.35em")
+      .attr("text-anchor", (d) => ((d.startAngle + d.endAngle) / 2 < Math.PI ? "start" : "end"))
+      .text((d) => d.data.name);
+  }
+
+  function drawBars() {
+    const host = document.getElementById("bars");
+    host.innerHTML = "";
+    const W = Lab.width(host);
+    const labelW = 108, rightW = 46, rowH = 26, bh = 14;
+    const bw = Math.max(60, W - labelW - rightW);
+    const x = d3.scaleLinear([0, ranked[0].share], [0, bw]);
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", ranked.length * rowH + 4)
+      .attr("role", "img").attr("aria-label", "After: the channel shares as a sorted bar chart");
+    const g = svg.append("g").attr("transform", `translate(${labelW},2)`);
+    g.append("line").attr("y1", 0).attr("y2", ranked.length * rowH).style("stroke", "var(--axis)");
+    const rows = g.selectAll("g").data(ranked).join("g").attr("transform", (d, i) => `translate(0,${i * rowH})`);
+    rows.append("text").attr("class", "label").attr("x", -8).attr("y", rowH / 2 + 4).attr("text-anchor", "end").text((d) => d.name);
+    rows.append("rect").attr("y", (rowH - bh) / 2).attr("height", bh).attr("width", (d) => x(d.share)).style("fill", "var(--text-muted)");
+    rows.append("text").attr("class", "label").attr("x", (d) => x(d.share) + 6).attr("y", rowH / 2 + 4)
+      .style("font-variant-numeric", "tabular-nums").text((d) => Lab.fmt.pct1(d.share));
+    rows.append("rect").attr("x", -labelW).attr("width", labelW + bw + rightW).attr("height", rowH).style("fill", "transparent")
+      .call((s) => s.on("pointerenter pointermove", (e, d) => Lab.tooltip.show(e, `<strong>${d.name}</strong><br><span class="tt-k">Share</span> ${Lab.fmt.pct1(d.share)}`))
+        .on("pointerleave", () => Lab.tooltip.hide()));
+  }
+
+  Lab.tableView(document.getElementById("share-table"),
+    [{ key: "name", label: "Channel" }, { key: "share", label: "Share of revenue", align: "r", format: Lab.fmt.pct1 }],
+    ranked, "Show the channel shares as a table");
+
+  Lab.responsive(() => { drawGraph(); drawPie(); drawBars(); });
+})();
+</script>
+</body>
+</html>

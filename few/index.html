@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stephen Few · Data Viz Lab</title>
+<meta name="description" content="Stephen Few's discipline applied: bullet graphs to spec, a one-screen dashboard, and the table-or-graph decision.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="few.js"></script>
+<style>
+  .commitments { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 32px; margin-top: 0.8rem; }
+  .commitments p { margin: 0.3rem 0; font-size: 0.95rem; color: var(--text-secondary); }
+  .commitments strong { color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/" aria-current="true">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">Section</p>
+  <h1>Stephen Few</h1>
+  <p class="lede">The disciplined room. Graphs built for business people who have thirty seconds and a decision to make: gray by default, color only when something needs attention, and every pixel answering to the question being asked.</p>
+
+  <div class="cards">
+    <a class="card" href="bullet-graphs.html">
+      <div class="thumb" id="t-bullets" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Bullet graphs</h3>
+        <p>Six KPIs to Few's own specification, horizontal and vertical, plus what the same six would cost as gauges, in pixels.</p>
+      </div>
+    </a>
+    <a class="card" href="dashboard.html">
+      <div class="thumb" id="t-dash" aria-hidden="true"></div>
+      <div class="body">
+        <h3>One-screen dashboard</h3>
+        <p>A sales dashboard after Information Dashboard Design: bullet graphs, sparklines, ranked bars, one trend line and a compact table.</p>
+      </div>
+    </a>
+    <a class="card" href="table-or-graph.html">
+      <div class="thumb" id="t-tog" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Table or graph</h3>
+        <p>Show Me the Numbers in three moves: a table for lookup, a graph for pattern, and a pie chart rebuilt as sorted bars.</p>
+      </div>
+    </a>
+  </div>
+
+  <h2>What Few insists on</h2>
+  <div class="commitments">
+    <p><strong>Purpose first.</strong> Decide whether the reader looks up values or looks for a pattern before choosing a table or a graph, then pick the graph from the relationship: ranking, time series, part to whole, deviation, distribution, correlation.</p>
+    <p><strong>Encode for accuracy.</strong> Position on a common scale before length, length before angle or area. Bars start at zero. Lines carry time. No 3D, no gauges, no pies.</p>
+    <p><strong>Mute the context.</strong> Gridlines, axes and most data in light gray. Saturated color is an alarm and is spent only on what needs action, with a label so it survives grayscale.</p>
+    <p><strong>One screen, at a glance.</strong> A dashboard is for monitoring. If it scrolls, needs a legend to decode, or decorates, it has failed before anyone reads it.</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  const kpis = Few.kpis();
+  function svg(id) {
+    const el = document.getElementById(id);
+    const w = el.clientWidth || 300, h = el.clientHeight || 140;
+    el.innerHTML = "";
+    return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
+  }
+
+  function draw() {
+    // Bullet graphs: four real KPIs, no axes.
+    (function () {
+      const { s, w, h } = svg("t-bullets");
+      const rows = kpis.slice(0, 4), pad = 22, rowH = (h - 2 * pad) / rows.length;
+      rows.forEach((k, i) => {
+        const g = s.append("g").attr("transform", `translate(${pad},${pad + i * rowH + (rowH - 16) / 2})`);
+        Few.bulletH(g, k, { width: w - 2 * pad, bandH: 16, axis: false });
+      });
+    })();
+
+    // Dashboard: KPI tiles with sparklines, ranked bars with one flagged, a trend line.
+    (function () {
+      const { s, w, h } = svg("t-dash");
+      const pad = 16, tw = (w - 2 * pad - 3 * 8) / 4;
+      kpis.slice(0, 4).forEach((k, i) => {
+        const g = s.append("g").attr("transform", `translate(${pad + i * (tw + 8)},${pad})`);
+        g.append("line").attr("x2", tw).style("stroke", "var(--grid)");
+        Few.spark(g.append("g").attr("transform", "translate(0,6)"), k.monthly, tw, 18);
+        Few.bulletH(g.append("g").attr("transform", "translate(0,30)"), k, { width: tw, bandH: 8, axis: false });
+      });
+      const by = 64, bars = [0.95, 0.86, 0.74, 0.62, 0.5], bw = (w - 2 * pad) * 0.42;
+      bars.forEach((v, i) => s.append("rect").attr("x", pad).attr("y", by + i * 12).attr("width", bw * v).attr("height", 7)
+        .style("fill", i === 1 ? "var(--critical)" : "var(--text-muted)"));
+      const lx = pad + bw + 18, lw = w - pad - lx, rand = Lab.rng(3);
+      const a = Lab.walk(rand, 12, 1, 0.01, 0.05), b = Lab.walk(rand, 12, 1, 0.005, 0.05);
+      const x = d3.scaleLinear([0, 11], [lx, lx + lw]), y = d3.scaleLinear(d3.extent(a.concat(b)), [h - pad, by]);
+      s.append("path").attr("d", d3.line((d, i) => x(i), y)(b)).style("fill", "none").style("stroke", "var(--text-muted)").style("stroke-width", 1);
+      s.append("path").attr("d", d3.line((d, i) => x(i), y)(a)).style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1.5);
+    })();
+
+    // Table or graph: ruled rows on the left, three lines on the right.
+    (function () {
+      const { s, w, h } = svg("t-tog");
+      const pad = 18, half = (w - 2 * pad) * 0.42;
+      for (let r = 0; r < 7; r++) {
+        const y = pad + 8 + r * 14;
+        for (let c = 0; c < 3; c++) {
+          const cw = 22 - ((r * 7 + c * 3) % 9);
+          s.append("rect").attr("x", pad + half * (c + 1) / 3 - cw).attr("y", y - 4).attr("width", cw).attr("height", 3)
+            .style("fill", r === 4 && c === 1 ? "var(--text-primary)" : "var(--text-muted)");
+        }
+        s.append("line").attr("x1", pad).attr("x2", pad + half).attr("y1", y + 3).attr("y2", y + 3).style("stroke", "var(--grid)");
+      }
+      const lx = pad + half + 20, lw = w - pad - lx, rand = Lab.rng(9);
+      const x = d3.scaleLinear([0, 11], [lx, lx + lw]), y = d3.scaleLinear([0.5, 1.6], [h - pad, pad]);
+      [0.012, 0.03, 0].forEach((drift, i) => {
+        const v = Lab.walk(rand, 12, [1.15, 0.8, 0.6][i], drift, 0.04);
+        s.append("path").attr("d", d3.line((d, j) => x(j), y)(v)).style("fill", "none")
+          .style("stroke", `var(--series-${i + 1})`).style("stroke-width", 1.5);
+      });
+    })();
+  }
+  Lab.responsive(draw);
+})();
+</script>
+</body>
+</html>
