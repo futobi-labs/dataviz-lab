@@ -1,0 +1,185 @@
+/* Pressroom: a tactile palette and texture system for report pages.
+   Loaded after lab.css, only on pages in pressroom/. Everything is scoped to
+   .pr so the rest of the lab keeps its own tokens.
+
+   Idea: a report printed on uncoated card stock. Flat, matte ink blocks,
+   paper tooth, riso speckle, halftone for "less", letterpress numerals.
+   Text on a block always wears that block's --on color at full strength
+   (checked at 4.5:1 or better, grain included; see pressroom/index.html). */
+
+.pr {
+  /* stock and paper */
+  --pr-stock:  #ebe4d6;   /* page / canvas */
+  --pr-paper:  #f6f1e7;   /* paper tile */
+  --pr-ink:    #1f1c18;   /* primary text */
+  --pr-ink-2:  #4f4940;   /* secondary text */
+  --pr-ink-3:  #655d52;   /* muted text, axis labels */
+  --pr-rule:   #d8cfbd;   /* hairlines, grid */
+  --pr-hole:   rgba(31, 28, 24, 0.13); /* debossed well */
+
+  /* blocks (large matte fills) and the text that sits on them */
+  --pr-harbor:    #23446b; --pr-harbor-on:    #f6f1e7;
+  --pr-persimmon: #e9693c; --pr-persimmon-on: #1f1c18;
+  --pr-marigold:  #f0c23e; --pr-marigold-on:  #1f1c18;
+  --pr-moss:      #55622c; --pr-moss-on:      #f6f1e7;
+  --pr-blush:     #efbcc5; --pr-blush-on:     #1f1c18;
+  --pr-patina:    #1d6a5d; --pr-patina-on:    #f6f1e7;
+  --pr-stone:     #d9d0bf; --pr-stone-on:     #1f1c18;
+
+  /* data inks: categorical marks on paper, fixed order (validated on #f6f1e7) */
+  --pr-s1: #2a5f99; /* Harbor    */
+  --pr-s2: #d9572b; /* Persimmon */
+  --pr-s3: #108a72; /* Patina    */
+  --pr-s4: #b07d0a; /* Ochre     */
+  --pr-s5: #c9567f; /* Rose      */
+  --pr-s6: #677a2e; /* Moss      */
+  --pr-s7: #7563b8; /* Lilac     */
+  --pr-s8: #a8542f; /* Clay      */
+
+  /* status: reserved, always with a label or shape */
+  --pr-good: #2f7d32; --pr-warn: #b7791f; --pr-crit: #b3261e;
+
+  /* texture strength */
+  --pr-grain-blend: multiply; --pr-grain-op: 0.22;
+  --pr-speck-blend: multiply; --pr-speck-op: 0.30;
+  --pr-press-hi: rgba(255, 255, 255, 0.38);   /* light catch under a letterpress impression */
+  --pr-press-lo: rgba(0, 0, 0, 0.16);
+  --pr-edge-hi:  rgba(255, 255, 255, 0.40);
+  --pr-edge-lo:  rgba(0, 0, 0, 0.07);
+  --pr-lift:     0 1px 1px rgba(40, 30, 10, 0.06), 0 2px 6px rgba(40, 30, 10, 0.05);
+
+  --pr-display: "Avenir Next", "Futura", "Century Gothic", "Gill Sans", var(--sans);
+}
+
+/* dark: the same inks pulled on black stock */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .pr {
+    --pr-stock: #12110f; --pr-paper: #1d1b18; --pr-ink: #efe8da; --pr-ink-2: #c4bba9; --pr-ink-3: #958c7c;
+    --pr-rule: #34302a; --pr-hole: rgba(0, 0, 0, 0.38);
+    --pr-harbor: #284c78; --pr-harbor-on: #efe8da;
+    --pr-persimmon: #d8673c; --pr-persimmon-on: #15130f;
+    --pr-marigold: #cfa030; --pr-marigold-on: #15130f;
+    --pr-moss: #4b5727; --pr-moss-on: #efe8da;
+    --pr-blush: #b98793; --pr-blush-on: #15130f;
+    --pr-patina: #1b5e53; --pr-patina-on: #efe8da;
+    --pr-stone: #2a2722; --pr-stone-on: #efe8da;
+    --pr-s1: #5b8fd0; --pr-s2: #e2693a; --pr-s3: #2aa88d; --pr-s4: #b8870f;
+    --pr-s5: #d46a92; --pr-s6: #8aa04a; --pr-s7: #8a78d2; --pr-s8: #c8754f;
+    --pr-good: #5fb064; --pr-warn: #d9a441; --pr-crit: #ec6a5e;
+    --pr-grain-blend: screen; --pr-grain-op: 0.07;
+    --pr-speck-blend: multiply; --pr-speck-op: 0.40;
+    --pr-press-hi: rgba(255, 255, 255, 0.07);
+    --pr-press-lo: rgba(0, 0, 0, 0.55);
+    --pr-edge-hi:  rgba(255, 255, 255, 0.06);
+    --pr-edge-lo:  rgba(0, 0, 0, 0.35);
+    --pr-lift:     0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme="dark"] .pr {
+  --pr-stock: #12110f; --pr-paper: #1d1b18; --pr-ink: #efe8da; --pr-ink-2: #c4bba9; --pr-ink-3: #958c7c;
+  --pr-rule: #34302a; --pr-hole: rgba(0, 0, 0, 0.38);
+  --pr-harbor: #284c78; --pr-harbor-on: #efe8da;
+  --pr-persimmon: #d8673c; --pr-persimmon-on: #15130f;
+  --pr-marigold: #cfa030; --pr-marigold-on: #15130f;
+  --pr-moss: #4b5727; --pr-moss-on: #efe8da;
+  --pr-blush: #b98793; --pr-blush-on: #15130f;
+  --pr-patina: #1b5e53; --pr-patina-on: #efe8da;
+  --pr-stone: #2a2722; --pr-stone-on: #efe8da;
+  --pr-s1: #5b8fd0; --pr-s2: #e2693a; --pr-s3: #2aa88d; --pr-s4: #b8870f;
+  --pr-s5: #d46a92; --pr-s6: #8aa04a; --pr-s7: #8a78d2; --pr-s8: #c8754f;
+  --pr-good: #5fb064; --pr-warn: #d9a441; --pr-crit: #ec6a5e;
+  --pr-grain-blend: screen; --pr-grain-op: 0.07;
+  --pr-speck-blend: multiply; --pr-speck-op: 0.40;
+  --pr-press-hi: rgba(255, 255, 255, 0.07);
+  --pr-press-lo: rgba(0, 0, 0, 0.55);
+  --pr-edge-hi:  rgba(255, 255, 255, 0.06);
+  --pr-edge-lo:  rgba(0, 0, 0, 0.35);
+  --pr-lift:     0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- textures (tileable SVG noise, no images to download) ---------- */
+.pr {
+  /* paper tooth: fine fractal noise, grayscale */
+  --pr-tex-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  /* riso speckle: sparse, hard-edged dots where the drum skipped or doubled */
+  --pr-tex-speck: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='1' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -2.2 0 0 0 1.25'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 0 0 0 0.55 1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E");
+}
+
+/* a canvas of stock */
+.pr-canvas {
+  position: relative; isolation: isolate;
+  background: var(--pr-stock); color: var(--pr-ink);
+  border-radius: 14px; padding: 12px;
+}
+.pr-canvas::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0;
+  background-image: var(--pr-tex-grain); background-size: 220px 220px;
+  mix-blend-mode: var(--pr-grain-blend); opacity: var(--pr-grain-op);
+}
+
+/* ---------- tiles ---------- */
+.pr-tile {
+  --bg: var(--pr-paper); --on: var(--pr-ink); --on-2: var(--pr-ink-2);
+  position: relative; isolation: isolate; overflow: hidden;
+  background: var(--bg); color: var(--on);
+  border-radius: 10px; padding: 14px 16px;
+  box-shadow: inset 0 1px 0 var(--pr-edge-hi), inset 0 -1px 0 var(--pr-edge-lo), var(--pr-lift);
+  display: flex; flex-direction: column; min-width: 0; z-index: 1;
+}
+/* paper tooth on every tile, riso speckle on the ink blocks */
+.pr-tile::before, .pr-tile::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+}
+.pr-tile::before {
+  background-image: var(--pr-tex-grain); background-size: 220px 220px;
+  mix-blend-mode: var(--pr-grain-blend); opacity: var(--pr-grain-op); z-index: 2;
+}
+.pr-tile.block::after {
+  background-image: var(--pr-tex-speck); background-size: 260px 260px;
+  mix-blend-mode: var(--pr-speck-blend); opacity: var(--pr-speck-op); z-index: 2;
+}
+.pr-tile > * { position: relative; z-index: 3; }
+
+.pr-tile.paper     { --bg: var(--pr-paper); --on: var(--pr-ink); --on-2: var(--pr-ink-2); }
+.pr-tile.harbor    { --bg: var(--pr-harbor);    --on: var(--pr-harbor-on);    --on-2: var(--pr-harbor-on); }
+.pr-tile.persimmon { --bg: var(--pr-persimmon); --on: var(--pr-persimmon-on); --on-2: var(--pr-persimmon-on); }
+.pr-tile.marigold  { --bg: var(--pr-marigold);  --on: var(--pr-marigold-on);  --on-2: var(--pr-marigold-on); }
+.pr-tile.moss      { --bg: var(--pr-moss);      --on: var(--pr-moss-on);      --on-2: var(--pr-moss-on); }
+.pr-tile.blush     { --bg: var(--pr-blush);     --on: var(--pr-blush-on);     --on-2: var(--pr-blush-on); }
+.pr-tile.patina    { --bg: var(--pr-patina);    --on: var(--pr-patina-on);    --on-2: var(--pr-patina-on); }
+.pr-tile.stone     { --bg: var(--pr-stone);     --on: var(--pr-stone-on);     --on-2: var(--pr-stone-on); }
+
+/* ---------- type ---------- */
+.pr-label {
+  font: 600 0.72rem/1.25 var(--sans); letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--on-2); margin: 0;
+}
+.pr-big {
+  font-family: var(--pr-display); font-weight: 500; letter-spacing: -0.035em; line-height: 0.92;
+  font-variant-numeric: tabular-nums lining-nums; margin: 0;
+  /* letterpress: the impression catches light on its lower lip and shadow on its upper */
+  text-shadow: 0 1px 0 var(--pr-press-hi), 0 -1px 0 var(--pr-press-lo);
+}
+.pr-unit { font: 500 0.95rem/1.3 var(--sans); color: var(--on-2); margin: 0; }
+.pr-small { font-size: 0.82rem; line-height: 1.35; color: var(--on-2); margin: 0; }
+
+/* halftone fill for "the rest" (cross-highlight off-state, ghosts) */
+.pr-halftone {
+  background-image: radial-gradient(circle, currentColor 1.1px, transparent 1.5px);
+  background-size: 5px 5px;
+}
+
+/* chips (slicers, incidents) */
+.pr-chip {
+  font: 600 0.74rem/1 var(--sans); letter-spacing: 0.02em; color: var(--on);
+  background: transparent; border: 1.5px solid currentColor; border-radius: 999px;
+  padding: 5px 9px; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.pr-chip:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.pr-chip[aria-pressed="true"] { background: var(--on); color: var(--bg); border-color: var(--on); }
+.pr-chip:focus-visible, .pr-tile [tabindex]:focus-visible { outline: 2px solid var(--on); outline-offset: 2px; }
+
+/* swatches on the system page */
+.pr-swatch {
+  aspect-ratio: 4 / 3; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between;
+}

@@ -1,0 +1,140 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/powerbi-desktop-samples/main/Report%20Theme%20JSON%20Schema/reportThemeSchema-2.149.json",
+  "name": "Pressroom (dark)",
+  "dataColors": [
+    "#5B8FD0",
+    "#E2693A",
+    "#2AA88D",
+    "#B8870F",
+    "#D46A92",
+    "#8AA04A",
+    "#8A78D2",
+    "#C8754F"
+  ],
+  "firstLevelElements": "#EFE8DA",
+  "secondLevelElements": "#C4BBA9",
+  "thirdLevelElements": "#34302A",
+  "fourthLevelElements": "#958C7C",
+  "background": "#1D1B18",
+  "secondaryBackground": "#2A2722",
+  "tableAccent": "#5B8FD0",
+  "good": "#5FB064",
+  "neutral": "#D9A441",
+  "bad": "#EC6A5E",
+  "minimum": "#D8673C",
+  "center": "#12110F",
+  "maximum": "#284C78",
+  "null": "#2A2722",
+  "textClasses": {
+    "callout": {
+      "fontSize": 44,
+      "fontFace": "Segoe UI Light",
+      "color": "#EFE8DA"
+    },
+    "title": {
+      "fontSize": 10,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#C4BBA9"
+    },
+    "header": {
+      "fontSize": 12,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#EFE8DA"
+    },
+    "label": {
+      "fontSize": 10,
+      "fontFace": "Segoe UI",
+      "color": "#958C7C"
+    }
+  },
+  "visualStyles": {
+    "*": {
+      "*": {
+        "background": [
+          {
+            "show": false
+          }
+        ],
+        "border": [
+          {
+            "show": false
+          }
+        ],
+        "dropShadow": [
+          {
+            "show": false
+          }
+        ],
+        "visualHeader": [
+          {
+            "show": false
+          }
+        ],
+        "title": [
+          {
+            "fontColor": {
+              "solid": {
+                "color": "#C4BBA9"
+              }
+            },
+            "fontSize": 10
+          }
+        ]
+      }
+    },
+    "page": {
+      "*": {
+        "background": [
+          {
+            "color": {
+              "solid": {
+                "color": "#1D1B18"
+              }
+            },
+            "transparency": 0
+          }
+        ],
+        "outspace": [
+          {
+            "color": {
+              "solid": {
+                "color": "#12110F"
+              }
+            },
+            "transparency": 0
+          }
+        ]
+      }
+    },
+    "columnChart": {
+      "*": {
+        "dataPoint": [
+          {
+            "borderShow": true,
+            "borderColor": {
+              "solid": {
+                "color": "#1D1B18"
+              }
+            },
+            "borderSize": 2
+          }
+        ]
+      }
+    },
+    "barChart": {
+      "*": {
+        "dataPoint": [
+          {
+            "borderShow": true,
+            "borderColor": {
+              "solid": {
+                "color": "#1D1B18"
+              }
+            },
+            "borderSize": 2
+          }
+        ]
+      }
+    }
+  }
+}

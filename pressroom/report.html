@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nightly loads, in print · Pressroom · Data Viz Lab</title>
+<meta name="description" content="A bento report page in the Pressroom palette: matte color blocks, paper tooth, halftone and letterpress numerals, cross-highlighting like a Power BI page, with a Power BI build note for every tile.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<link rel="stylesheet" href="pressroom.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="../engineer/warehouse.js"></script>
+<script src="layout.js"></script>
+<style>
+  /* The page: 12 x 6 at 16:9 on wide screens, like a 1280 x 720 Power BI page. */
+  .bento { position: relative; z-index: 1; display: grid; gap: 10px;
+    grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(0, 1fr));
+    aspect-ratio: 16 / 9; min-height: 600px; }
+  .t-a { grid-area: 1 / 1 / span 2 / span 4; }
+  .t-b { grid-area: 1 / 5 / span 2 / span 3; }
+  .t-c { grid-area: 1 / 8 / span 3 / span 5; }
+  .t-d { grid-area: 3 / 1 / span 1 / span 7; }
+  .t-e { grid-area: 4 / 1 / span 3 / span 5; }
+  .t-f { grid-area: 4 / 6 / span 3 / span 3; }
+  .t-g { grid-area: 4 / 9 / span 2 / span 4; }
+  .t-h { grid-area: 6 / 9 / span 1 / span 4; }
+
+  .viz { flex: 1 1 auto; min-height: 0; position: relative; }
+  .viz svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+
+  .t-a h2 { font: 600 1.45rem/1.1 var(--pr-display); letter-spacing: -0.02em; margin: 6px 0 4px; }
+  .slicer { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
+  .slicer .pr-chip { padding: 5px 7px; min-width: 2.6em; }
+  .status-line { display: flex; gap: 8px; align-items: center; min-height: 26px; margin: 6px 0 8px; }
+  .status-line button { font: 600 0.74rem var(--sans); color: var(--on); background: none; border: 0; text-decoration: underline; cursor: pointer; padding: 0; }
+
+  .t-b .pr-big { font-size: clamp(3.4rem, 6.2vw, 5.4rem); margin-top: auto; }
+  .t-b .pr-unit { margin-top: 6px; }
+  .t-d { flex-direction: row; gap: 18px; align-items: stretch; }
+  .t-d .hero { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: space-between; }
+  .t-d .pr-big { font-size: clamp(2.2rem, 3.6vw, 3rem); }
+  .t-f .pr-big, .t-e .pr-big { font-size: clamp(2rem, 3.2vw, 2.6rem); margin: 4px 0 2px; }
+  .head-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .pr-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 0.74rem; color: var(--on-2); margin: 6px 0 2px; }
+  .pr-legend button { font: inherit; color: inherit; background: none; border: 0; padding: 1px 0; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+  .pr-legend button[aria-pressed="true"] { color: var(--on); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  .pr-legend .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .incidents { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+
+  /* build-note badges */
+  .badge { position: absolute; top: 8px; right: 8px; z-index: 5; display: none;
+    width: 22px; height: 22px; border-radius: 50%; place-items: center;
+    background: var(--on); color: var(--bg); font: 700 0.72rem/1 var(--sans); }
+  .show-notes .badge { display: grid; }
+  /* canvas-only: keep blocks and texture, hide the visuals (screenshot it for a Power BI background) */
+  .canvas-only .pr-tile > * { visibility: hidden; }
+
+  .pr-wrap { margin: 1.2rem 0 0.5rem; }
+  .build { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 28px; margin-top: 1rem; }
+  .build article { border-top: 2px solid var(--text-primary); padding-top: 8px; }
+  .build h3 { margin: 0 0 4px; font-size: 1rem; }
+  .build h3 .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--text-primary); color: var(--surface-1); font-size: 0.72rem; margin-right: 6px; vertical-align: 1px; }
+  .build p { margin: 0.25rem 0; font-size: 0.92rem; color: var(--text-secondary); }
+  .build p strong { color: var(--text-primary); font-weight: 600; }
+  .build .pos { font: 0.8rem var(--mono); color: var(--text-muted); }
+  pre.dax { font: 0.8rem/1.45 var(--mono); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; overflow-x: auto; max-width: 100%; }
+
+  /* Narrower than a report page: reflow like a Power BI phone layout. */
+  @media (max-width: 960px) {
+    .bento { aspect-ratio: auto; min-height: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: auto; }
+    .t-a, .t-b, .t-c, .t-d, .t-e, .t-f, .t-g, .t-h { grid-area: auto; }
+    .t-a, .t-c, .t-d, .t-e { grid-column: span 2; }
+    .t-b, .t-f { min-height: 240px; }
+    .t-c .viz { height: 230px; flex: none; }
+    .t-d .viz { height: 96px; }
+    .t-e .viz { height: 260px; flex: none; }
+    .t-f .viz { height: 150px; flex: none; }
+    .t-g .viz { height: 210px; flex: none; }
+  }
+  @media (max-width: 600px) {
+    .bento { grid-template-columns: minmax(0, 1fr); }
+    .t-a, .t-b, .t-c, .t-d, .t-e, .t-f, .t-g, .t-h { grid-column: auto; }
+    .t-b, .t-f { min-height: 0; }
+    .t-d { flex-direction: column; gap: 6px; }
+    .t-d .viz { height: 90px; flex: none; }
+    .t-c .viz { height: 200px; }
+    .pr-canvas { padding: 8px; }
+  }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/">Engineer's eye</a>
+    <a href="../pressroom/" aria-current="true">Pressroom</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker"><a href="./">Pressroom</a> · Report page</p>
+  <h1>Nightly loads, in print</h1>
+  <p class="lede">One Power BI page of the warehouse's year, set as a bento grid of color blocks on card stock. It is a working page, not a poster: pick a month or a source and every tile answers, the way cross-highlighting does in Power BI. Every tile has a note below on how to build it there.</p>
+
+  <div class="controls">
+    <button type="button" id="btn-notes" aria-pressed="false">Show tile numbers</button>
+    <button type="button" id="btn-canvas" aria-pressed="false">Canvas only</button>
+    <span>Click a month, peg, column, source or incident. Click again or press Esc to clear.</span>
+  </div>
+
+  <div class="pr pr-wrap">
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="ht-defs"></defs></svg>
+    <div class="pr-canvas" id="canvas">
+      <div class="bento" id="bento">
+        <section class="pr-tile stone t-a" aria-labelledby="ttl">
+          <span class="badge">1</span>
+          <p class="pr-label">Ridgeway Supply · data platform</p>
+          <h2 id="ttl">Did Gold land by 06:00?</h2>
+          <p class="pr-small" id="a-range"></p>
+          <div class="status-line pr-small" id="a-status" aria-live="polite"></div>
+          <div class="slicer" id="slicer" role="group" aria-label="Month slicer"></div>
+        </section>
+
+        <section class="pr-tile harbor block t-b" aria-label="Nights on time">
+          <span class="badge">2</span>
+          <p class="pr-label">Nights on time</p>
+          <p class="pr-big num" id="b-num"></p>
+          <p class="pr-unit" id="b-unit"></p>
+        </section>
+
+        <section class="pr-tile marigold block t-c" aria-label="Every night, one peg">
+          <span class="badge">3</span>
+          <div class="head-row">
+            <p class="pr-label">Every night, one peg</p>
+            <p class="pr-small" id="c-key"></p>
+          </div>
+          <div class="viz" id="c-viz"></div>
+        </section>
+
+        <section class="pr-tile persimmon block t-d" aria-label="Gold finish time">
+          <span class="badge">4</span>
+          <div class="hero">
+            <p class="pr-label">Median Gold finish</p>
+            <p class="pr-big num" id="d-num"></p>
+          </div>
+          <div class="viz" id="d-viz"></div>
+        </section>
+
+        <section class="pr-tile paper t-e" aria-label="Bronze landing time by month">
+          <span class="badge">5</span>
+          <p class="pr-label">Bronze landing time, minutes per night</p>
+          <div class="pr-legend" id="e-legend" role="group" aria-label="Source"></div>
+          <div class="viz" id="e-viz"></div>
+        </section>
+
+        <section class="pr-tile moss block t-f" aria-label="Test warnings and failures">
+          <span class="badge">6</span>
+          <p class="pr-label">Test warnings and failures</p>
+          <p class="pr-big num" id="f-num"></p>
+          <p class="pr-small" id="f-unit"></p>
+          <div class="viz" id="f-viz"></div>
+        </section>
+
+        <section class="pr-tile paper t-g" aria-label="Bronze minutes by source">
+          <span class="badge">7</span>
+          <div class="head-row">
+            <p class="pr-label">Bronze minutes by source</p>
+            <p class="pr-small">per night</p>
+          </div>
+          <div class="viz" id="g-viz"></div>
+        </section>
+
+        <section class="pr-tile patina block t-h" aria-label="Incidents">
+          <span class="badge">8</span>
+          <p class="pr-label">Incidents</p>
+          <div class="incidents" id="h-chips" role="group" aria-label="Incidents"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+  <div id="tv"></div>
+  <p class="source" id="src"></p>
+
+  <h2>Reading it</h2>
+  <p>The blocks are the hierarchy. Harbor holds the one number the business asks about, Marigold holds the year, Persimmon holds the clock, and the paper tiles carry the categorical charts, because the eight data inks were checked against paper and nothing else. On a colored block every mark is printed in that block's own ink, one color per tile, the way a two-color job would be. Selection never repaints anything: what you didn't pick turns to halftone or fades, so the eye still finds it.</p>
+  <p>Things to find: June is the fortnight of throttled capacity, nine late nights and the tallest columns of the year. The dense spring screen in Silver and Gold is the orphaned CRM accounts; pick CRM and it stays while most of the rest goes pale. December's dark cells are volume tests tripping on Black Friday, and October's Bronze row is CRM freshness tests during the vendor's rate limits.</p>
+
+  <h2>Building it in Power BI</h2>
+  <p>The page is 1280 by 720, twelve columns by six rows, 16px margin and 12px gutters. Positions below are what you type into Format &gt; General &gt; Properties. The texture is the one thing Power BI can't draw, so it comes in as a picture: press <strong>Canvas only</strong> above, screenshot the frame at 1280 by 720, or use the background JPEGs in the repo, and set it as the page's Canvas background with transparency 0. Then every visual sits on it with its background off, which the theme already does.</p>
+  <div class="build" id="build"></div>
+
+  <h3>Cross-highlight, not cross-filter</h3>
+  <p>In Format &gt; Edit interactions, set the column chart and the halftone matrix to <strong>Highlight</strong> and the hero cards to <strong>Filter</strong>. Highlight keeps the axis and the shape of the year and shows the selection inside it, which is what this page does with halftone. Deneb visuals take part when you switch on cross-highlight and cross-filter in their settings and test the selection fields in the spec.</p>
+
+  <h3>Measures behind the tiles</h3>
+<pre class="dax">On-time nights =
+CALCULATE ( COUNTROWS ( Runs ), Runs[SLA met] = TRUE () )
+
+Median Gold finish =
+FORMAT ( TIME ( 0, MEDIAN ( Runs[Gold finish minutes] ), 0 ), "hh:mm" )
+
+Issues =
+CALCULATE ( COUNTROWS ( TestResults ), TestResults[Outcome] IN { "warn", "fail" } )
+
+Issues per night =
+DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
+
+  <p class="source">Downloads: <a href="pressroom-light.json">theme, light</a> · <a href="pressroom-dark.json">theme, dark</a> · <a href="canvas-light.jpg">canvas background, light</a> · <a href="canvas-dark.jpg">canvas background, dark</a>. The system behind the colors and textures is on the <a href="./">Pressroom</a> page.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const runs = WH.runs(), dq = WH.dq();
+  const fmtMonth = d3.utcFormat("%Y-%m"), monthName = d3.utcFormat("%b %Y"), monthShort = d3.utcFormat("%b");
+  const dayFmt = d3.utcFormat("%a %-d %b %Y");
+  const months = Array.from(new Set(runs.map((r) => fmtMonth(r.day))));
+  const mDate = (k) => d3.utcParse("%Y-%m")(k);
+  const srcIds = WH.sources.map((s) => s.id);
+  const srcVar = (id) => `var(--pr-s${WH.sourceIndex[id] + 1})`;
+  const src = (id) => WH.sources[WH.sourceIndex[id]];
+  const firstOfYear = (k) => k === months[0] || k === months[months.length - 1] || monthShort(mDate(k)) === "Jan";
+  const chipLabel = (k) => firstOfYear(k) ? d3.utcFormat("%b %y")(mDate(k)).replace(" ", " ’") : monthShort(mDate(k));
+
+  const state = { month: null, source: null };
+  function set(k, v) { state[k] = state[k] === v ? null : v; render(); }
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && (state.month || state.source)) { state.month = state.source = null; render(); } });
+
+  /* ---------- derived data ---------- */
+  runs.forEach((r) => { r.month = fmtMonth(r.day); });
+  const late = (r) => !r.slaMet;
+  // Bronze minutes per night by month x source
+  const bronze = months.map((m) => {
+    const rs = runs.filter((r) => r.month === m);
+    const row = { month: m, nights: rs.length };
+    srcIds.forEach((id) => { row[id] = d3.mean(rs, (r) => d3.sum(r.tasks.filter((k) => k.source === id), (k) => k.minutes)); });
+    row.total = d3.sum(srcIds, (id) => row[id]);
+    return row;
+  });
+  // DQ issues by month x layer, with sources of each table
+  const issues = [];
+  dq.forEach((d) => d.results.forEach((x) => {
+    if (x.outcome === "warn" || x.outcome === "fail") issues.push({ month: d.date.slice(0, 7), date: d.date, layer: x.layer, table: x.table, test: x.test, outcome: x.outcome, sources: WH.byId[x.table].sources });
+  }));
+  const totalResults = d3.sum(dq, (d) => d.results.length);
+
+  /* ---------- helpers ---------- */
+  function svgIn(id) {
+    const el = document.getElementById(id);
+    el.innerHTML = "";
+    const w = Math.max(10, el.clientWidth), h = Math.max(10, el.clientHeight);
+    const s = d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`).attr("preserveAspectRatio", "none");
+    return { s, w, h, el };
+  }
+  function halftone(defs, id, colorVar, step, r) {
+    const p = defs.append("pattern").attr("id", id).attr("width", step).attr("height", step).attr("patternUnits", "userSpaceOnUse");
+    p.append("circle").attr("cx", step / 2).attr("cy", step / 2).attr("r", r).style("fill", colorVar);
+    return `url(#${id})`;
+  }
+  const tip = (e, html) => Lab.tooltip.show(e, html);
+  const untip = () => Lab.tooltip.hide();
+  const clock = WH.clock;
+
+  /* ---------- 1. title + slicer ---------- */
+  document.getElementById("a-range").textContent = `${runs.length} nightly loads, ${d3.utcFormat("%-d %b %Y")(runs[0].day)} to ${d3.utcFormat("%-d %b %Y")(runs[runs.length - 1].day)}. Deadline 06:00.`;
+  const slicer = d3.select("#slicer").selectAll("button").data(months).join("button")
+    .attr("type", "button").attr("class", "pr-chip").text(chipLabel)
+    .attr("aria-label", (m) => monthName(mDate(m)))
+    .on("click", (e, m) => set("month", m));
+
+  /* ---------- 7. legend (source slicer) ---------- */
+  const legend = d3.select("#e-legend").selectAll("button").data(WH.sources).join("button").attr("type", "button")
+    .html((s) => `<span class="sw" style="background:${srcVar(s.id)}"></span>${s.name}`)
+    .on("click", (e, s) => set("source", s.id));
+
+  /* ---------- 8. incidents ---------- */
+  d3.select("#h-chips").selectAll("button").data(WH.incidents).join("button").attr("type", "button").attr("class", "pr-chip")
+    .text((i) => i.title)
+    .on("mousemove", (e, i) => tip(e, `<strong>${i.title}</strong><br><span class="tt-k">${d3.utcFormat("%-d %b")(i.fromDay)} to ${d3.utcFormat("%-d %b %Y")(i.toDay)}</span><br>${i.note}`))
+    .on("mouseleave", untip)
+    .on("click", (e, i) => set("month", i.from.slice(0, 7)));
+
+  /* ---------- render all tiles from state ---------- */
+  function render() {
+    const M = state.month, S = state.source;
+    const inM = (r) => !M || r.month === M;
+    const rsM = runs.filter(inM);
+
+    // 1
+    slicer.attr("aria-pressed", (m) => String(m === M));
+    const parts = [M ? monthName(mDate(M)) : null, S ? src(S).name : null].filter(Boolean);
+    const status = d3.select("#a-status").html("");
+    status.append("span").text(parts.length ? "Highlighting " + parts.join(" · ") : "Showing every night");
+    if (parts.length) status.append("button").attr("type", "button").text("Clear").on("click", () => { state.month = state.source = null; render(); });
+
+    // 2
+    const onTime = rsM.filter((r) => r.slaMet).length;
+    d3.select("#b-num").text(onTime);
+    d3.select("#b-unit").text(`of ${rsM.length} nights${M ? " in " + monthName(mDate(M)) : ""}, ${d3.format(".0%")(onTime / rsM.length)}. Gold by 06:00 with nothing broken.`);
+
+    // 4
+    d3.select("#d-num").text(clock(d3.median(rsM, (r) => r.goldEnd)));
+
+    // 6
+    const iss = issues.filter((x) => (!M || x.month === M) && (!S || x.sources.includes(S)));
+    d3.select("#f-num").text(d3.format(",")(iss.length));
+    const nRes = (!M && !S) ? totalResults : d3.sum(dq.filter((d) => !M || d.date.startsWith(M)), (d) => S ? d.results.filter((x) => WH.byId[x.table].sources.includes(S)).length : d.results.length);
+    d3.select("#f-unit").text(`in ${d3.format(",")(nRes)} results${S ? " on tables fed by " + src(S).name : ""}`);
+
+    legend.attr("aria-pressed", (s) => String(s.id === S));
+    d3.select("#h-chips").selectAll("button").attr("aria-pressed", (i) => String(!!M && i.from.slice(0, 7) === M));
+
+    drawPegs(); drawTape(); drawColumns(); drawHalftone(); drawSources();
+  }
+
+  /* ---------- 3. pegboard ---------- */
+  function drawPegs() {
+    const { s, w, h } = svgIn("c-viz");
+    const M = state.month;
+    const w0 = d3.utcWeek.floor(runs[0].day);
+    const cols = d3.utcWeek.count(w0, runs[runs.length - 1].day) + 1;
+    const left = 16, top = 16;
+    const cell = Math.min((w - left) / cols, (h - top - 4) / 7);
+    const r = Math.max(1.6, cell * 0.36);
+    const g = s.append("g").attr("transform", `translate(${left},${top})`);
+    ["S", "M", "T", "W", "T", "F", "S"].forEach((d, i) => { if (i % 2) g.append("text").attr("x", -6).attr("y", i * cell + cell / 2).attr("dy", "0.35em").attr("text-anchor", "end").style("fill", "var(--on)").style("font", "600 9px var(--sans)").text(d); });
+    months.forEach((m) => {
+      const d = d3.max([mDate(m), runs[0].day]);
+      const c = d3.utcWeek.count(w0, d);
+      g.append("text").attr("x", c * cell).attr("y", -6).style("fill", "var(--on)").style("font", "600 9.5px var(--sans)").style("opacity", !M || M === m ? 1 : 0.45).text(monthShort(mDate(m)).slice(0, cw(cell)));
+    });
+    function cw(c) { return c * 4.3 > 24 ? 3 : 1; }
+    const peg = g.selectAll("g.p").data(runs).join("g").attr("class", "p")
+      .attr("transform", (r) => `translate(${d3.utcWeek.count(w0, r.day) * cell + cell / 2},${r.day.getUTCDay() * cell + cell / 2})`)
+      .style("opacity", (r) => !M || r.month === M ? 1 : 0.28);
+    // debossed well: light lip below, shadowed cup
+    peg.filter((r) => !late(r)).append("circle").attr("cy", 0.7).attr("r", r).style("fill", "var(--pr-press-hi)");
+    peg.filter((r) => !late(r)).append("circle").attr("r", r).style("fill", "var(--pr-hole)");
+    // raised peg: ink with a highlight
+    peg.filter(late).append("circle").attr("r", r * 1.12).style("fill", "var(--on)");
+    peg.filter(late).append("circle").attr("cx", -r * 0.3).attr("cy", -r * 0.35).attr("r", r * 0.32).style("fill", "var(--bg)").style("opacity", 0.55);
+    peg.append("rect").attr("x", -cell / 2).attr("y", -cell / 2).attr("width", cell).attr("height", cell).style("fill", "transparent").style("cursor", "pointer")
+      .on("mousemove", (e, r) => tip(e, `<strong>${dayFmt(r.day)}</strong><br>Gold finished ${clock(r.goldEnd)}${r.slaMet ? "" : r.broken ? `, ${r.broken} tables broken` : ", after 06:00"}${r.incidents.length ? "<br><span class='tt-k'>" + r.incidents.map((i) => i.title).join(", ") + "</span>" : ""}`))
+      .on("mouseleave", untip)
+      .on("click", (e, r) => set("month", r.month));
+    d3.select("#c-key").html(`<svg width="10" height="10" style="vertical-align:-1px"><circle cx="5" cy="5" r="4" style="fill:var(--pr-hole)"/></svg> on time &nbsp; <svg width="10" height="10" style="vertical-align:-1px"><circle cx="5" cy="5" r="4.5" style="fill:var(--on)"/></svg> late or broken`);
+  }
+
+  /* ---------- 4. tape measure ---------- */
+  function drawTape() {
+    const { s, w, h } = svgIn("d-viz");
+    const M = state.month;
+    const x = d3.scaleLinear([60, 540], [8, w - 8]);
+    const base = h - 20;
+    const g = s.append("g");
+    // ruler
+    g.append("line").attr("x1", x(60)).attr("x2", x(540)).attr("y1", base).attr("y2", base).style("stroke", "var(--on)").style("stroke-width", 1.5);
+    d3.range(60, 541, 15).forEach((m) => {
+      const major = m % 60 === 0;
+      g.append("line").attr("x1", x(m)).attr("x2", x(m)).attr("y1", base).attr("y2", base + (major ? 7 : 3.5)).style("stroke", "var(--on)").style("stroke-width", major ? 1.2 : 0.8);
+      if (major) g.append("text").attr("x", x(m)).attr("y", base + 17).attr("text-anchor", "middle").style("fill", "var(--on)").style("font", "600 10px var(--sans)").text(clock(m).slice(0, 2));
+    });
+    // deadline
+    g.append("line").attr("x1", x(WH.slaMinutes)).attr("x2", x(WH.slaMinutes)).attr("y1", 2).attr("y2", base).style("stroke", "var(--on)").style("stroke-width", 1.2).style("stroke-dasharray", "2 2");
+    g.append("text").attr("x", x(WH.slaMinutes) + 5).attr("y", 10).style("fill", "var(--on)").style("font", "600 10px var(--sans)").text("06:00 deadline");
+    // nights: one hairline each, stacked into a rug; picked month stands up taller
+    const top = 16;
+    const sel = (r) => !M || r.month === M;
+    g.selectAll("line.n").data(runs.slice().sort((a, b) => sel(a) - sel(b))).join("line").attr("class", "n")
+      .attr("x1", (r) => x(Math.min(r.goldEnd, 540))).attr("x2", (r) => x(Math.min(r.goldEnd, 540)))
+      .attr("y1", (r) => sel(r) ? top : base - (base - top) * 0.45).attr("y2", base - 2)
+      .style("stroke", "var(--on)").style("stroke-width", 1).style("opacity", (r) => sel(r) ? (M ? 0.9 : 0.32) : 0.16);
+    const med = d3.median(runs.filter(sel), (r) => r.goldEnd);
+    g.append("path").attr("d", d3.symbol(d3.symbolTriangle, 46)()).attr("transform", `translate(${x(med)},${top - 7}) rotate(180)`).style("fill", "var(--on)");
+    // hover: nearest night
+    const xs = runs.filter(sel);
+    g.append("rect").attr("x", 0).attr("y", 0).attr("width", w).attr("height", base).style("fill", "transparent")
+      .on("mousemove", (e) => {
+        const [px] = d3.pointer(e);
+        const v = x.invert(px), n = xs.filter((r) => Math.abs(r.goldEnd - v) < 4);
+        tip(e, `<strong>${clock(v)}</strong><br>${n.length} night${n.length === 1 ? "" : "s"} finished within 4 minutes of this${M ? " in " + monthName(mDate(M)) : ""}`);
+      })
+      .on("mouseleave", untip);
+  }
+
+  /* ---------- 5. stacked columns ---------- */
+  function drawColumns() {
+    const { s, w, h } = svgIn("e-viz");
+    const M = state.month, S = state.source;
+    const defs = s.append("defs");
+    const pat = Object.fromEntries(srcIds.map((id, i) => [id, halftone(defs, "ht-e-" + id, srcVar(id), 4, 1.15)]));
+    const m = { l: 30, r: 4, t: 8, b: 20 };
+    const x = d3.scaleBand(months, [m.l, w - m.r]).paddingInner(0.22).paddingOuter(0.05);
+    const y = d3.scaleLinear([0, d3.max(bronze, (d) => d.total) * 1.05], [h - m.b, m.t]).nice();
+    const g = s.append("g");
+    g.selectAll("line.gr").data(y.ticks(4)).join("line").attr("x1", m.l).attr("x2", w - m.r).attr("y1", y).attr("y2", y).style("stroke", "var(--pr-rule)");
+    g.selectAll("text.yt").data(y.ticks(4)).join("text").attr("x", m.l - 6).attr("y", y).attr("dy", "0.35em").attr("text-anchor", "end").style("fill", "var(--pr-ink-3)").style("font", "10px var(--sans)").style("font-variant-numeric", "tabular-nums").text((d) => d);
+    g.selectAll("text.xt").data(months).join("text").attr("x", (d) => x(d) + x.bandwidth() / 2).attr("y", h - 5).attr("text-anchor", "middle").style("fill", (d) => d === M ? "var(--pr-ink)" : "var(--pr-ink-3)").style("font", (d) => (d === M ? "700 " : "") + "10px var(--sans)").text((d) => monthShort(mDate(d)).slice(0, x.bandwidth() > 26 ? 3 : 1));
+    const stack = d3.stack().keys(srcIds)(bronze);
+    stack.forEach((layer) => {
+      const id = layer.key;
+      g.selectAll(null).data(layer).join("rect")
+        .attr("x", (d) => x(d.data.month)).attr("width", x.bandwidth())
+        .attr("y", (d) => y(d[1])).attr("height", (d) => Math.max(0, y(d[0]) - y(d[1])))
+        .attr("rx", 1.5)
+        .style("fill", S && S !== id ? pat[id] : srcVar(id))
+        .style("stroke", "var(--pr-paper)").style("stroke-width", 1.5)
+        .style("opacity", (d) => !M || d.data.month === M ? 1 : 0.38)
+        .style("cursor", "pointer")
+        .on("mousemove", (e, d) => tip(e, `<strong>${src(id).name}, ${monthName(mDate(d.data.month))}</strong><br>${d3.format(".0f")(d.data[id])} min per night landing Bronze<br><span class="tt-k">All sources: ${d3.format(".0f")(d.data.total)} min</span>`))
+        .on("mouseleave", untip)
+        .on("click", (e, d) => set("month", d.data.month));
+    });
+    // selected source: direct label on its slice of the selected or last month
+    if (S) {
+      const k = M || months[months.length - 1], d = bronze.find((b) => b.month === k);
+      const L = stack[WH.sourceIndex[S]].find((p) => p.data.month === k);
+      g.append("text").attr("x", x(k) + x.bandwidth() / 2).attr("y", y(L[1]) - 4).attr("text-anchor", "middle").style("fill", "var(--pr-ink)").style("font", "700 10px var(--sans)").text(d3.format(".0f")(d[S]));
+    }
+  }
+
+  /* ---------- 6. halftone grid ---------- */
+  function drawHalftone() {
+    const { s, w, h } = svgIn("f-viz");
+    const M = state.month, S = state.source;
+    const layers = WH.layers;
+    const m = { l: 44, r: 2, t: 6, b: 16 };
+    const x = d3.scaleBand(months, [m.l, w - m.r]).paddingInner(0.12);
+    const y = d3.scaleBand(layers, [m.t, h - m.b]).paddingInner(0.14);
+    const nights = Object.fromEntries(bronze.map((b) => [b.month, b.nights]));
+    const iss = issues.filter((x) => !S || x.sources.includes(S));
+    const cells = [];
+    months.forEach((mm) => layers.forEach((L) => {
+      const list = iss.filter((x) => x.month === mm && x.layer === L);
+      const top = d3.rollups(list, (v) => v.length, (x) => x.test).sort((a, b) => b[1] - a[1])[0];
+      cells.push({ month: mm, layer: L, n: list.length, rate: list.length / nights[mm], top: top ? top[0] : null });
+    }));
+    const vmax = d3.max(issues.length ? months.flatMap((mm) => layers.map((L) => issues.filter((x) => x.month === mm && x.layer === L).length / nights[mm])) : [1]);
+    const step = Math.max(3.2, Math.min(x.bandwidth(), y.bandwidth()) / 4);
+    const rr = d3.scaleSqrt([0, vmax], [0, step * 0.52]);
+    const g = s.append("g");
+    layers.forEach((L) => g.append("text").attr("x", 0).attr("y", y(L) + y.bandwidth() / 2).attr("dy", "0.35em").style("fill", "var(--on)").style("font", "600 10px var(--sans)").text(L[0].toUpperCase() + L.slice(1)));
+    g.selectAll("text.xt").data(months).join("text").attr("x", (d) => x(d) + x.bandwidth() / 2).attr("y", h - 3).attr("text-anchor", "middle").style("fill", "var(--on)").style("font", (d) => (d === M ? "700 " : "600 ") + "9.5px var(--sans)").text((d) => monthShort(mDate(d)).slice(0, 1));
+    const cell = g.selectAll("g.cell").data(cells).join("g").attr("class", "cell")
+      .attr("transform", (d) => `translate(${x(d.month)},${y(d.layer)})`)
+      .style("opacity", (d) => !M || d.month === M ? 1 : 0.3);
+    cell.each(function (d) {
+      const node = d3.select(this), r = rr(d.rate);
+      // faint wells everywhere, so an empty cell still reads as paper with a screen on it
+      for (let cx = step / 2; cx < x.bandwidth(); cx += step) for (let cy = step / 2; cy < y.bandwidth(); cy += step) {
+        if (r > 0.3) node.append("circle").attr("cx", cx).attr("cy", cy).attr("r", r).style("fill", "var(--on)");
+        else node.append("circle").attr("cx", cx).attr("cy", cy).attr("r", 0.55).style("fill", "var(--on)").style("opacity", 0.35);
+      }
+    });
+    cell.append("rect").attr("width", x.bandwidth()).attr("height", y.bandwidth()).style("fill", "transparent").style("cursor", "pointer")
+      .on("mousemove", (e, d) => tip(e, `<strong>${d.layer[0].toUpperCase() + d.layer.slice(1)}, ${monthName(mDate(d.month))}</strong><br>${d.n} warnings and failures${S ? " (" + src(S).name + " tables)" : ""}, ${d3.format(".1f")(d.rate)} a night${d.top ? "<br><span class='tt-k'>Mostly " + d.top.replace("_", " ") + " tests</span>" : ""}`))
+      .on("mouseleave", untip)
+      .on("click", (e, d) => set("month", d.month));
+  }
+
+  /* ---------- 7. sources ---------- */
+  function drawSources() {
+    const { s, w, h } = svgIn("g-viz");
+    const M = state.month, S = state.source;
+    const rows = WH.sources.map((sr) => {
+      const b = M ? bronze.find((x) => x.month === M) : null;
+      return { id: sr.id, name: sr.name, v: b ? b[sr.id] : d3.mean(runs, (r) => d3.sum(r.tasks.filter((k) => k.source === sr.id), (k) => k.minutes)) };
+    });
+    const vmax = d3.max(srcIds, (id) => d3.max(bronze, (b) => b[id]));
+    const labelW = Math.min(118, w * 0.34), valW = 34;
+    const y = d3.scaleBand(srcIds, [2, h - 2]).paddingInner(0.32);
+    const x = d3.scaleLinear([0, vmax], [labelW, w - valW]);
+    const bh = Math.min(14, y.bandwidth());
+    const row = s.selectAll("g.r").data(rows).join("g").attr("class", "r")
+      .attr("transform", (d) => `translate(0,${y(d.id) + (y.bandwidth() - bh) / 2})`)
+      .style("opacity", (d) => !S || d.id === S ? 1 : 0.42).style("cursor", "pointer")
+      .on("mousemove", (e, d) => tip(e, `<strong>${d.name}</strong> (${src(d.id).kind})<br>${d3.format(".1f")(d.v)} min per night landing Bronze${M ? " in " + monthName(mDate(M)) : ""}<br><span class="tt-k">Arrives: ${src(d.id).arrival}</span>`))
+      .on("mouseleave", untip)
+      .on("click", (e, d) => set("source", d.id));
+    row.append("rect").attr("width", w).attr("height", bh).attr("y", 0).style("fill", "transparent");
+    row.append("circle").attr("cx", 5).attr("cy", bh / 2).attr("r", 4.5).style("fill", (d) => srcVar(d.id));
+    row.append("text").attr("x", 15).attr("y", bh / 2).attr("dy", "0.35em").style("fill", "var(--pr-ink)").style("font", (d) => (d.id === S ? "700 " : "") + "12px var(--sans)").text((d) => d.name);
+    // debossed track, then the inked bar
+    row.append("rect").attr("x", x(0)).attr("width", x(vmax) - x(0)).attr("y", 0.6).attr("height", bh).attr("rx", bh / 2).style("fill", "var(--pr-press-hi)");
+    row.append("rect").attr("x", x(0)).attr("width", x(vmax) - x(0)).attr("height", bh).attr("rx", bh / 2).style("fill", "var(--pr-hole)");
+    row.append("rect").attr("x", x(0)).attr("width", (d) => Math.max(bh, x(d.v) - x(0))).attr("height", bh).attr("rx", bh / 2).style("fill", (d) => srcVar(d.id));
+    row.append("text").attr("x", w).attr("y", bh / 2).attr("dy", "0.35em").attr("text-anchor", "end").style("fill", "var(--pr-ink)").style("font", "600 12px var(--sans)").style("font-variant-numeric", "tabular-nums").text((d) => d3.format(".0f")(d.v));
+  }
+
+  Lab.responsive(render);
+
+  /* ---------- toggles ---------- */
+  function toggle(btn, cls) {
+    btn.addEventListener("click", () => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      btn.setAttribute("aria-pressed", String(on));
+      document.getElementById("canvas").classList.toggle(cls, on);
+    });
+  }
+  toggle(document.getElementById("btn-notes"), "show-notes");
+  toggle(document.getElementById("btn-canvas"), "canvas-only");
+
+  /* ---------- table view ---------- */
+  Lab.tableView("#tv", [
+    { key: "month", label: "Month", format: (m) => monthName(mDate(m)) },
+    { key: "nights", label: "Nights", align: "r" },
+    { key: "onTime", label: "On time", align: "r" },
+    { key: "median", label: "Median Gold finish", align: "r" },
+    { key: "bronze", label: "Bronze min/night", align: "r", format: (v) => d3.format(".0f")(v) },
+    { key: "issues", label: "Warnings + failures", align: "r" },
+  ], months.map((m) => {
+    const rs = runs.filter((r) => r.month === m);
+    return { month: m, nights: rs.length, onTime: rs.filter((r) => r.slaMet).length, median: clock(d3.median(rs, (r) => r.goldEnd)),
+      bronze: bronze.find((b) => b.month === m).total, issues: issues.filter((x) => x.month === m).length };
+  }), "Show the page's numbers as a table");
+  document.getElementById("src").textContent = "Source: " + WH.source;
+
+  /* ---------- build notes ---------- */
+  const NOTES = {
+    1: [["Native", "A text box for the title and a Slicer on Calendar[Month], style Tile (or the newer button slicer), single select. Selected tile fill = the theme's first-level ink, text = Stone."], ["Texture", "Stone block comes from the canvas background image."]],
+    2: [["Native", "New card visual on [On-time nights], callout from the theme's callout text class; a second reference label for the sentence."], ["Letterpress", "Power BI text has no shadow. For the pressed numeral, make an SVG measure (the number twice, offset 1px, light under dark) and show it in an Image visual bound to the measure with data category Image URL. Worth it for the hero number only."]],
+    3: [["Deneb", "Vega-Lite point marks: x = week of year, y = weekday. Three layers: a light circle 0.7px low, the well on top, and filled pegs where SLA met is false. Turn on cross-highlight and cross-filter in Deneb's settings and fade unselected nights through the selection fields."], ["Native fallback", "A matrix of weeks by weekday with conditional-format icons. Loses the peg, keeps the pattern."]],
+    4: [["Native", "Card for the median, plus a scatter chart for the rug: x = Gold finish minutes, y = a constant, marker = a thin vertical line, transparency 70%. Add the 06:00 line as an X-axis constant line in the Analytics pane."], ["Deneb", "Tick marks for nights and a rule at 360 minutes give the ruler its 15-minute graduations."]],
+    5: [["Native", "Stacked column chart, Calendar[Month] on the axis, Bronze minutes per night, Source in the legend. Set each source's color explicitly (Columns > Colors) so a filter can never repaint them; the theme's dataColors are in the same fixed order."], ["Gaps", "The paper gaps between segments are native: Columns > Border on, color = paper, size 2. The theme file sets this for every stacked column chart."], ["Halftone off-state", "Not native; Power BI's highlight fades the rest instead, which reads fine. For true halftone, build the tile in Deneb with a pattern-free trick: a second layer of small point marks over unselected bars."]],
+    6: [["SVG in a matrix", "Matrix with Layer on rows and Month on columns; the value is a DAX SVG measure that draws a 4 by 4 grid of dots whose radius is SQRT([Issues per night]) scaled to the cell. Set image size in Format > Image size. Matrix cells cross-highlight natively."], ["Deneb", "Or one Vega-Lite spec: calculate sequence(0,16) per cell, flatten it, and place point marks by index with size from the rate."]],
+    7: [["Native", "Clustered bar chart, Source on the axis in source order, colors set per source. Square ends; there is no radius on bars."], ["Debossed track", "Not native. A table with Source, an SVG measure that draws the well and the bar, and the value does it, and still cross-filters when clicked."]],
+    8: [["Native", "Button slicer on an Incident table related to Calendar by date range. A report-page tooltip shows the note on hover. Bookmarks work too, but a slicer keeps the page's state in one place."], ["Texture", "Patina block from the canvas image; the chips' outline color is the block's text color."]],
+  };
+  d3.select("#build").selectAll("article").data(PR.tiles).join("article").html((t) => {
+    const r = PR.rect(t);
+    return `<h3><span class="n">${t.n}</span>${t.name}</h3>
+      <p class="pos">x ${r.x} · y ${r.y} · w ${r.w} · h ${r.h} · ${t.block}</p>` +
+      NOTES[t.n].map(([k, v]) => `<p><strong>${k}.</strong> ${v}</p>`).join("");
+  });
+})();
+</script>
+</body>
+</html>

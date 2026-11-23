@@ -6,9 +6,11 @@
 <title>Data Viz Lab</title>
 <meta name="description" content="Tanner Spaulding's exploratory data visualization lab: experimental D3, Stephen Few, Edward Tufte, and new approaches.">
 <link rel="stylesheet" href="assets/css/lab.css">
+<link rel="stylesheet" href="pressroom/pressroom.css">
 <script src="assets/vendor/d3-7.9.0.min.js"></script>
 <script src="assets/js/lab.js"></script>
 <script src="engineer/warehouse.js"></script>
+<script src="pressroom/layout.js"></script>
 <style>
   .hero { padding: 1.5rem 0 0.5rem; }
   .hero h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); letter-spacing: -0.03em; margin-bottom: 0.3em; }
@@ -30,6 +32,12 @@
   .feature-cta::after { content: " \2192"; }
   h2.studies { margin-top: 2.4rem; }
   @media (max-width: 720px) { .feature { grid-template-columns: 1fr; } .feature-art { min-height: 200px; border-right: 0; border-bottom: 1px solid var(--border); } }
+  .feature.pr-feature { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); margin-top: 1rem; }
+  .pr-feature .feature-art { border-right: 0; border-left: 1px solid var(--border); order: 2; padding: 14px; background: var(--surface-2); }
+  .pr-feature .pr-canvas { padding: 7px; }
+  .pr-feature .mini { display: grid; gap: 5px; grid-template-columns: repeat(12, 1fr); grid-template-rows: repeat(6, 1fr); aspect-ratio: 16 / 9; }
+  .pr-feature .pr-tile { padding: 0; border-radius: 6px; }
+  @media (max-width: 720px) { .pr-feature .feature-art { order: 0; border-left: 0; border-bottom: 1px solid var(--border); min-height: 0; } }
 </style>
 </head>
 <body>
@@ -37,6 +45,7 @@
   <a class="brand" href="./">Data Viz Lab</a>
   <nav>
     <a href="engineer/">Engineer's eye</a>
+    <a href="pressroom/">Pressroom</a>
     <a href="experimental/">Experimental</a>
     <a href="few/">Stephen Few</a>
     <a href="tufte/">Tufte</a>
@@ -62,6 +71,15 @@
     </div>
   </a>
 
+  <a class="feature pr-feature" href="pressroom/">
+    <div class="feature-art pr" aria-hidden="true"><div class="pr-canvas"><div class="mini" id="t-press"></div></div></div>
+    <div class="feature-body">
+      <p class="kicker">New room</p>
+      <h2>Pressroom</h2>
+      <p>A palette and texture system you can almost touch: matte color blocks, paper tooth, riso speckle, halftone and letterpress numerals. Then a working bento report page in it, with cross-highlighting and a Power BI build note and theme for every piece.</p>
+      <p class="feature-cta">Open the room</p>
+    </div>
+  </a>
   <h2 class="studies">Studies</h2>
 
   <div class="sections" style="margin-top:0.8rem">
@@ -123,6 +141,10 @@
     return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
   }
 
+  // Pressroom: the report's bento, in its own blocks.
+  d3.select("#t-press").selectAll("div").data(PR.tiles).join("div")
+    .attr("class", (t) => `pr-tile ${t.block} ${t.block === "paper" ? "" : "block"}`)
+    .style("grid-area", (t) => `${t.area[1]} / ${t.area[0]} / span ${t.area[3]} / span ${t.area[2]}`);
   // Feature: a year of nightly Gold finish times, SLA line, incidents labeled.
   (function () {
     const { s, w, h } = svg("t-feature");

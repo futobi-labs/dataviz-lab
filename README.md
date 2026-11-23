@@ -3,11 +3,12 @@
 An exploratory data visualization notebook, published at
 **https://tannerspaulding.github.io/dataviz-lab/**.
 
-A main room and four studies:
+A main room, the Pressroom, and four studies:
 
 | Section | Folder | What lives there |
 |---|---|---|
 | The engineer's eye | `engineer/` | Load logs, lineage, star schemas, data-quality tests and schema drift from one synthetic medallion warehouse and a simulated year of nightly loads. |
+| Pressroom | `pressroom/` | A tactile palette and texture system (matte blocks, paper tooth, riso speckle, halftone, letterpress numerals), a bento report page on the warehouse data with cross-highlighting, and Power BI themes and canvas backgrounds to match. |
 | Experimental | `experimental/` | Generative, physical, odd D3. Data art that still encodes data. |
 | Stephen Few | `few/` | Bullet graphs, one-screen dashboards, table-or-graph decisions. |
 | Edward Tufte | `tufte/` | Sparklines, slopegraphs, range-frames, small multiples. |
