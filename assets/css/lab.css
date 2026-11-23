@@ -1,0 +1,199 @@
+/* Data Viz Lab — shared style.
+   Tokens first; everything below is written against roles, not raw hex.
+   Light/dark: OS setting via media query, viewer toggle via [data-theme]. */
+
+:root {
+  color-scheme: light;
+  --page:           #f9f9f7;
+  --surface-1:      #fcfcfb;
+  --surface-2:      #f0efec;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --grid:           #e1e0d9;
+  --axis:           #c3c2b7;
+  --border:         rgba(11, 11, 11, 0.10);
+  --accent:         #2a78d6;
+
+  /* categorical, fixed order (validated: adjacent CVD ΔE ≥ 8.4, normal ≥ 19.3) */
+  --series-1: #2a78d6; /* blue */
+  --series-2: #eb6834; /* orange */
+  --series-3: #1baf7a; /* aqua */
+  --series-4: #eda100; /* yellow */
+  --series-5: #e87ba4; /* magenta */
+  --series-6: #008300; /* green */
+  --series-7: #6250d6; /* violet */
+  --series-8: #e34948; /* red */
+
+  /* sequential blue ramp */
+  --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec; --seq-400: #3987e5;
+  --seq-500: #256abf; --seq-600: #184f95; --seq-700: #0d366b;
+
+  /* diverging poles + neutral midpoint */
+  --div-neg: #e34948; --div-mid: #f0efec; --div-pos: #2a78d6;
+
+  /* status (reserved: never a series) */
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+
+  /* Few-style qualitative grays (bullet graph bands), dark → light */
+  --band-1: #c9c8c2; --band-2: #dddcd6; --band-3: #ecebe6;
+
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --measure: 68ch;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #232321;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #3987e5;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
+    --seq-100: #0d366b; --seq-200: #184f95; --seq-300: #1c5cab; --seq-400: #256abf;
+    --seq-500: #3987e5; --seq-600: #6da7ec; --seq-700: #9ec5f4;
+    --div-neg: #e66767; --div-mid: #383835; --div-pos: #3987e5;
+    --band-1: #45443f; --band-2: #363532; --band-3: #2a2a27;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19; --surface-2: #232321;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #3987e5;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
+  --seq-100: #0d366b; --seq-200: #184f95; --seq-300: #1c5cab; --seq-400: #256abf;
+  --seq-500: #3987e5; --seq-600: #6da7ec; --seq-700: #9ec5f4;
+  --div-neg: #e66767; --div-mid: #383835; --div-pos: #3987e5;
+  --band-1: #45443f; --band-2: #363532; --band-3: #2a2a27;
+}
+
+/* ---------- base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font: 16px/1.55 var(--sans);
+}
+a { color: inherit; text-decoration-color: var(--axis); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--text-primary); }
+h1, h2, h3 { line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); margin: 0 0 0.4em; }
+h2 { font-size: 1.35rem; margin: 2.2em 0 0.5em; }
+h3 { font-size: 1.05rem; margin: 1.6em 0 0.4em; }
+p, li { max-width: var(--measure); }
+code { font: 0.9em var(--mono); background: var(--surface-2); padding: 0.1em 0.3em; border-radius: 3px; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-muted); }
+.secondary { color: var(--text-secondary); }
+
+/* ---------- chrome ---------- */
+.site-header {
+  display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;
+  padding: 0.9rem clamp(16px, 4vw, 40px);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+  font-size: 0.92rem;
+}
+.site-header .brand { font-weight: 650; text-decoration: none; letter-spacing: -0.01em; }
+.site-header nav { display: flex; gap: 1rem; flex-wrap: wrap; }
+.site-header nav a { text-decoration: none; color: var(--text-secondary); padding: 2px 0; border-bottom: 2px solid transparent; }
+.site-header nav a:hover { color: var(--text-primary); }
+.site-header nav a[aria-current="true"] { color: var(--text-primary); border-bottom-color: var(--text-primary); }
+.theme-toggle {
+  margin-left: auto; font: inherit; font-size: 0.85rem; color: var(--text-secondary);
+  background: none; border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; cursor: pointer;
+}
+.theme-toggle:hover { color: var(--text-primary); }
+
+main { padding: 2rem clamp(16px, 4vw, 40px) 4rem; max-width: 1180px; margin: 0 auto; }
+main.wide { max-width: none; }
+.kicker { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.75rem; color: var(--text-muted); margin: 0 0 0.6rem; }
+.lede { font-size: 1.12rem; color: var(--text-secondary); max-width: 62ch; }
+
+.site-footer {
+  padding: 1.5rem clamp(16px, 4vw, 40px); border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: 0.85rem;
+}
+
+/* ---------- page furniture ---------- */
+.figure {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin: 1.25rem 0; overflow: hidden;
+}
+.figure svg, .figure canvas { display: block; max-width: 100%; }
+.figure-title { font-weight: 600; margin: 0 0 2px; }
+.figure-sub { color: var(--text-secondary); font-size: 0.9rem; margin: 0 0 12px; }
+.controls { display: flex; gap: 0.75rem 1.25rem; flex-wrap: wrap; align-items: center; margin: 0 0 12px; font-size: 0.9rem; color: var(--text-secondary); }
+.controls label { display: inline-flex; gap: 0.4rem; align-items: center; }
+.controls button, .controls select {
+  font: inherit; color: var(--text-primary); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer;
+}
+.controls button[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); }
+.controls input[type="range"] { accent-color: var(--accent); }
+
+.notes { border-left: 2px solid var(--axis); padding: 0.2rem 0 0.2rem 1rem; margin: 1.5rem 0; color: var(--text-secondary); }
+.notes h3 { margin-top: 0; color: var(--text-primary); font-size: 0.95rem; }
+.notes li, .notes p { font-size: 0.95rem; }
+
+.source { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.5rem; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 8px; }
+.legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* chart text & chrome */
+.axis text, .tick text { fill: var(--text-muted); font: 11px var(--sans); font-variant-numeric: tabular-nums; }
+.axis path, .axis line { stroke: var(--axis); }
+.grid line { stroke: var(--grid); shape-rendering: crispEdges; }
+.grid path { display: none; }
+.label { fill: var(--text-secondary); font: 12px var(--sans); }
+.label-strong { fill: var(--text-primary); font: 600 12px var(--sans); }
+
+/* tooltip */
+.lab-tooltip {
+  position: fixed; pointer-events: none; z-index: 50; opacity: 0; transition: opacity 80ms;
+  background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.12); border-radius: 6px; padding: 6px 9px;
+  font: 12px/1.4 var(--sans); font-variant-numeric: tabular-nums; max-width: 260px;
+}
+.lab-tooltip.on { opacity: 1; }
+.lab-tooltip .tt-k { color: var(--text-secondary); }
+
+/* table view (the accessible twin of a chart) */
+details.table-view { margin-top: 10px; font-size: 0.85rem; }
+details.table-view summary { cursor: pointer; color: var(--text-secondary); }
+details.table-view .tv-scroll { max-height: 320px; overflow: auto; margin-top: 6px; }
+table.lab { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.lab th, table.lab td { padding: 4px 12px 4px 0; border-bottom: 1px solid var(--grid); text-align: left; }
+table.lab td.r, table.lab th.r { text-align: right; }
+table.lab th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); }
+
+/* cards (home + section indexes) */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin: 1.5rem 0; }
+.card {
+  display: flex; flex-direction: column; text-decoration: none;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  transition: border-color 120ms, transform 120ms;
+}
+.card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.card .thumb { height: 140px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.card .thumb svg { width: 100%; height: 100%; display: block; }
+.card .body { padding: 14px 16px 16px; }
+.card h3 { margin: 0 0 4px; font-size: 1.02rem; }
+.card p { margin: 0; color: var(--text-secondary); font-size: 0.9rem; }
+
+/* Tufte section opts into the serif book face */
+body.tufte main { font-family: var(--serif); font-size: 1.08rem; }
+body.tufte main h1, body.tufte main h2, body.tufte main h3 { font-family: var(--serif); font-weight: 400; font-style: italic; letter-spacing: 0; }
+body.tufte .figure { background: transparent; border: none; padding: 0; }
+body.tufte .label, body.tufte .tick text { font-family: var(--serif); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -1,1 +1,161 @@
-<!doctype html><meta charset="utf-8"><title>Data Viz Lab</title><p>Coming online…</p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Viz Lab</title>
+<meta name="description" content="Tanner Spaulding's exploratory data visualization lab: experimental D3, Stephen Few, Edward Tufte, and new approaches.">
+<link rel="stylesheet" href="assets/css/lab.css">
+<script src="assets/vendor/d3-7.9.0.min.js"></script>
+<script src="assets/js/lab.js"></script>
+<style>
+  .hero { padding: 1.5rem 0 0.5rem; }
+  .hero h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); letter-spacing: -0.03em; margin-bottom: 0.3em; }
+  .sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; margin: 2rem 0 1rem; }
+  .sections .card .thumb { height: 170px; }
+  .sections .card .count { margin-top: 10px; font-size: 0.8rem; color: var(--text-muted); }
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 32px; margin-top: 1rem; }
+  .principles p { margin: 0.3rem 0; font-size: 0.95rem; color: var(--text-secondary); }
+  .principles strong { color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="./">Data Viz Lab</a>
+  <nav>
+    <a href="experimental/">Experimental</a>
+    <a href="few/">Stephen Few</a>
+    <a href="tufte/">Tufte</a>
+    <a href="new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <section class="hero">
+    <p class="kicker">A working notebook</p>
+    <h1>Data Viz Lab</h1>
+    <p class="lede">Four ways of looking at the same craft. One room for strange D3 experiments, one held to Stephen Few's discipline, one in Edward Tufte's ink-and-paper tradition, and one for the forms that came after both of them.</p>
+  </section>
+
+  <div class="sections">
+    <a class="card" href="experimental/">
+      <div class="thumb" id="t-exp" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Experimental</h3>
+        <p>Generative, physical and frankly odd D3. Data as particles, petals and stained glass. Rules optional.</p>
+        <p class="count">3 pieces</p>
+      </div>
+    </a>
+    <a class="card" href="few/">
+      <div class="thumb" id="t-few" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Stephen Few</h3>
+        <p>Bullet graphs, one-screen dashboards and the table-or-graph decision. Muted by default, color only where it means something.</p>
+        <p class="count">3 pages</p>
+      </div>
+    </a>
+    <a class="card" href="tufte/">
+      <div class="thumb" id="t-tufte" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Edward Tufte</h3>
+        <p>Sparklines in running text, slopegraphs, range-frames and small multiples. Maximum data, minimum ink.</p>
+        <p class="count">3 pages</p>
+      </div>
+    </a>
+    <a class="card" href="new/">
+      <div class="thumb" id="t-new" aria-hidden="true"></div>
+      <div class="body">
+        <h3>New data viz</h3>
+        <p>Scrollytelling, uncertainty you can feel, and linked views you can interrogate. Motion and interaction that carry meaning.</p>
+        <p class="count">3 pages</p>
+      </div>
+    </a>
+  </div>
+
+  <h2>House rules</h2>
+  <div class="principles">
+    <p><strong>Synthetic unless stated.</strong> Data is generated in-page with a seeded random source, so every reload is the same picture. Real public-domain data is labeled where used.</p>
+    <p><strong>Color does a job.</strong> Identity, magnitude, polarity or status. One fixed categorical order, checked for color-vision deficiency in light and dark.</p>
+    <p><strong>One axis.</strong> No dual-scale charts anywhere in the lab, including the experimental room.</p>
+    <p><strong>No build step.</strong> Plain HTML, CSS and D3 v7.9.0 vendored in the repo. Push to main and it publishes.</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  // Live thumbnails: each is a tiny, honest preview of its section's sensibility.
+  const rand = Lab.rng(7);
+  function svg(id) {
+    const el = document.getElementById(id);
+    const w = el.clientWidth || 300, h = el.clientHeight || 170;
+    el.innerHTML = "";
+    return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
+  }
+
+  // Experimental: a phyllotaxis spiral, colored by a hidden category.
+  (function () {
+    const { s, w, h } = svg("t-exp");
+    const n = 260, golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < n; i++) {
+      const r = 4.6 * Math.sqrt(i), a = i * golden;
+      s.append("circle")
+        .attr("cx", w / 2 + r * Math.cos(a)).attr("cy", h / 2 + r * Math.sin(a))
+        .attr("r", 2.4 + 1.2 * Math.sin(i / 9))
+        .style("fill", `var(--series-${1 + (i % 3)})`).style("opacity", 0.85);
+    }
+  })();
+
+  // Few: three bullet graphs. Gray bands, one dark bar, one target tick.
+  (function () {
+    const { s, w } = svg("t-few");
+    const rows = [[0.72, 0.8], [0.91, 0.85], [0.55, 0.75]];
+    const x0 = 26, x1 = w - 26, bh = 20, x = d3.scaleLinear([0, 1], [x0, x1]);
+    rows.forEach(([v, t], i) => {
+      const y = 32 + i * 42;
+      [[1, "--band-3"], [0.8, "--band-2"], [0.55, "--band-1"]].forEach(([b, c]) =>
+        s.append("rect").attr("x", x0).attr("y", y).attr("width", x(b) - x0).attr("height", bh).style("fill", `var(${c})`));
+      s.append("rect").attr("x", x0).attr("y", y + 7).attr("width", x(v) - x0).attr("height", 6).style("fill", "var(--text-primary)");
+      s.append("rect").attr("x", x(t) - 1).attr("y", y + 3).attr("width", 2).attr("height", bh - 6).style("fill", "var(--text-primary)");
+    });
+  })();
+
+  // Tufte: a sparkline with an interquartile band, min/max dots and the last value.
+  (function () {
+    const { s, w, h } = svg("t-tufte");
+    const data = Lab.walk(rand, 90, 50, 0.002, 0.03);
+    const x = d3.scaleLinear([0, data.length - 1], [24, w - 48]);
+    const y = d3.scaleLinear(d3.extent(data), [h - 40, 40]);
+    const q1 = d3.quantile(data, 0.25), q3 = d3.quantile(data, 0.75);
+    s.append("rect").attr("x", 24).attr("width", w - 72).attr("y", y(q3)).attr("height", y(q1) - y(q3)).style("fill", "var(--grid)");
+    s.append("path").attr("d", d3.line((d, i) => x(i), y)(data))
+      .style("fill", "none").style("stroke", "var(--text-secondary)").style("stroke-width", 1.25);
+    [d3.minIndex(data), d3.maxIndex(data)].forEach((i) =>
+      s.append("circle").attr("cx", x(i)).attr("cy", y(data[i])).attr("r", 2.6).style("fill", "var(--series-1)"));
+    const last = data.length - 1;
+    s.append("circle").attr("cx", x(last)).attr("cy", y(data[last])).attr("r", 2.6).style("fill", "var(--series-8)");
+    s.append("text").attr("x", x(last) + 6).attr("y", y(data[last]) + 4).attr("class", "label")
+      .style("font-family", "var(--serif)").text(d3.format(".1f")(data[last]));
+  })();
+
+  // New: hypothetical outcome draws. A fan of faint paths, one in color.
+  (function () {
+    const { s, w, h } = svg("t-new");
+    const x = d3.scaleLinear([0, 30], [20, w - 20]);
+    const y = d3.scaleLinear([-12, 16], [h - 18, 18]);
+    for (let k = 0; k < 40; k++) {
+      const pts = [0];
+      for (let i = 1; i <= 30; i++) pts.push(pts[i - 1] + 0.12 + 0.8 * Lab.randn(rand));
+      s.append("path").attr("d", d3.line((d, i) => x(i), y)(pts))
+        .style("fill", "none").style("stroke", k === 0 ? "var(--series-1)" : "var(--text-muted)")
+        .style("stroke-width", k === 0 ? 2 : 1).style("opacity", k === 0 ? 1 : 0.22);
+    }
+  })();
+})();
+</script>
+</body>
+</html>
