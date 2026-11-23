@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schema drift · Data Viz Lab</title>
+<meta name="description" content="A year of schema changes across a 42-table medallion warehouse: every table's column count as a stepped lane, and how long a new column takes to travel from Bronze to Gold.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="warehouse.js"></script>
+<style>
+  .back { margin: 0 0 1.4rem; font-size: 0.92rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  .figure svg { overflow: visible; }
+  .legend svg { display: inline-block; vertical-align: -3px; margin-right: 5px; overflow: visible; }
+  .legend span { white-space: nowrap; }
+  .readout { color: var(--text-secondary); font-size: 0.95rem; margin: 0.4rem 0 0.9rem; max-width: var(--measure); }
+  .readout b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .tname { fill: var(--text-secondary); font: 11px var(--mono); }
+  .lane.on .tname { fill: var(--text-primary); }
+  .lname { fill: var(--text-primary); font: 600 12px var(--sans); }
+  .lmeta { fill: var(--text-muted); font: 11.5px var(--sans); }
+  .collapsed-note { fill: var(--text-muted); font: 11.5px var(--sans); }
+  .cnt { fill: var(--text-primary); font: 11px var(--mono); }
+  .cnt-h { fill: var(--text-muted); font: 10.5px var(--sans); }
+  .step { fill: none; stroke: var(--text-secondary); stroke-width: 1.25; stroke-linejoin: round; }
+  .step.flat { stroke: var(--axis); }
+  .lane-rule { stroke: var(--grid); shape-rendering: crispEdges; }
+  .mgrid { stroke: var(--grid); shape-rendering: crispEdges; }
+  .mtick { fill: var(--text-muted); font: 11px var(--sans); font-variant-numeric: tabular-nums; }
+  .miss { fill: var(--critical); }
+  .ev { cursor: default; }
+  .ev .bg { fill: var(--surface-1); }
+  .ev .add { stroke: var(--div-pos); stroke-width: 1.8; stroke-linecap: round; }
+  .ev .drop { stroke: var(--div-neg); stroke-width: 1.8; stroke-linecap: round; }
+  .ev .ring { fill: var(--surface-1); stroke: var(--text-muted); stroke-width: 1; }
+  .ev .let { fill: var(--text-secondary); font: 600 8.5px var(--sans); text-anchor: middle; }
+  .ev .hit { fill: transparent; }
+  .ev:focus { outline: none; }
+  .ev:focus-visible .bg { stroke: var(--accent); stroke-width: 2; }
+  svg.dimming .ev:not(.hot) { opacity: 0.2; }
+  svg.dimming .ev.hot .bg { stroke: var(--text-primary); stroke-width: 1; }
+  .callout { fill: var(--text-primary); font: 11.5px var(--sans); }
+  .callout-k { fill: var(--text-primary); font: 600 11.5px var(--sans); }
+  .leader { stroke: var(--text-muted); stroke-width: 1; fill: none; }
+
+  .prow { cursor: default; }
+  .prow .pname { fill: var(--text-primary); font: 11.5px var(--mono); }
+  .prow .ppath { fill: var(--text-muted); font: 10.5px var(--sans); }
+  .prow .seg { stroke: var(--text-muted); stroke-width: 1.5; }
+  .prow .seg.dash { stroke-dasharray: 2 3; }
+  .prow .d-b { fill: var(--surface-1); stroke: var(--text-primary); stroke-width: 1.3; }
+  .prow .d-s { fill: var(--text-secondary); }
+  .prow .d-g { fill: var(--text-primary); }
+  .prow .tot { fill: var(--text-primary); font: 600 12px var(--sans); font-variant-numeric: tabular-nums; }
+  .prow .why { fill: var(--text-secondary); font: 11px var(--sans); }
+  .prow .hit { fill: transparent; }
+  .prow.on .pname { font-weight: 600; }
+  .prow.on .seg { stroke: var(--text-primary); }
+  .wgrid { stroke: var(--grid); shape-rendering: crispEdges; }
+  .wgrid.sprint { stroke: var(--axis); }
+  .xlab { fill: var(--text-muted); font: 11px var(--sans); }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/" aria-current="true">Engineer's eye</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← The engineer's eye</a></p>
+  <p class="kicker">The engineer's eye</p>
+  <h1>Schema drift</h1>
+  <p class="lede">A schema is a contract right up until the source system decides otherwise. <span id="lede-n"></span> Most of it was additive and harmless. It still moved through the layers at the speed of a sprint board, and the one change nobody announced cost two nights of loads.</p>
+
+  <h2>Every table's year</h2>
+  <div class="figure" id="fig-lanes">
+    <p class="figure-title">Column count by table, <span id="span-dates"></span></p>
+    <p class="figure-sub">One lane per table, grouped by layer. One column is the same step height in every lane, so a taller step is more columns, not a bigger table. Hover or tab to a glyph for the change; hovering an add lights up the rest of its trip downstream.</p>
+    <div class="controls">
+      <button type="button" id="toggle-unchanged" aria-pressed="false">Show unchanged tables</button>
+    </div>
+    <div class="legend" id="lanes-legend">
+      <span><svg width="12" height="12" viewBox="-6 -6 12 12"><path d="M-4,0H4M0,-4V4" style="stroke:var(--div-pos);stroke-width:1.8;stroke-linecap:round"/></svg>column added</span>
+      <span><svg width="12" height="12" viewBox="-6 -6 12 12"><path d="M-4,0H4" style="stroke:var(--div-neg);stroke-width:1.8;stroke-linecap:round"/></svg>column dropped</span>
+      <span><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5.5" style="fill:var(--surface-1);stroke:var(--text-muted)"/><text y="3" style="fill:var(--text-secondary);font:600 8.5px var(--sans);text-anchor:middle">R</text></svg>renamed</span>
+      <span><svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5.5" style="fill:var(--surface-1);stroke:var(--text-muted)"/><text y="3" style="fill:var(--text-secondary);font:600 8.5px var(--sans);text-anchor:middle">T</text></svg>type changed</span>
+      <span><svg width="6" height="10" viewBox="0 0 6 10"><rect x="1" y="3" width="3" height="5" style="fill:var(--critical)"/></svg>not refreshed that night (load failed or skipped upstream)</span>
+    </div>
+    <div id="lanes" role="img" aria-label="Stepped sparklines of column count for each warehouse table across the year, with markers for each schema change"></div>
+    <p class="readout" id="lanes-readout"></p>
+    <div id="events-table"></div>
+  </div>
+
+  <h2>How long a column takes to reach Gold</h2>
+  <div class="figure" id="fig-prop">
+    <p class="figure-title">Days from first landing in Bronze to Silver and Gold, per new source column</p>
+    <p class="figure-sub">Chains traced from column lineage: each Bronze add is matched to the later add events on its downstream columns. Vertical rules every 7 days; the darker ones every 14.</p>
+    <div class="legend">
+      <span><svg width="10" height="10" viewBox="-5 -5 10 10"><circle r="3.8" style="fill:var(--surface-1);stroke:var(--text-primary);stroke-width:1.3"/></svg>landed in Bronze</span>
+      <span><svg width="10" height="10" viewBox="-5 -5 10 10"><circle r="4" style="fill:var(--text-secondary)"/></svg>conformed in Silver</span>
+      <span><svg width="10" height="10" viewBox="-5 -5 10 10"><circle r="4.3" style="fill:var(--text-primary)"/></svg>exposed in Gold</span>
+    </div>
+    <p class="readout" id="prop-readout"></p>
+    <div id="prop" role="img" aria-label="Dot plot of the days each new Bronze column took to reach Silver and Gold"></div>
+    <p class="readout" id="prop-foot"></p>
+  </div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>Laid out by table, drift reads as weather: steady, mostly upward, mostly boring. The interesting structure is diagonal. The same column steps up in a Bronze lane, then a Silver lane, then a Gold lane weeks later, and the paired red ticks under the rename are its blast radius: four tables downstream, two nights in a row.</li>
+      <li>Column count is a blunt instrument. A rename or a widened decimal leaves the line flat, which is why they get letters instead of steps, and some of the worst drift never shows here at all: a column that keeps its name and type but changes meaning, a nullable field that starts arriving null, a code list that gains a value.</li>
+      <li>The additions were never the problem; a permissive Bronze swallows them. The rename was a contract break, and the load was the first thing to notice. A contract test at the source boundary, run before the copy, turns that R glyph into a failed check with a named owner instead of a failed night.</li>
+      <li>Pushback on the second chart: lag is not a defect. Two weeks per layer is a release cadence, and a column that shows up in Gold the same day it lands in Bronze is usually one nobody tested. Measure it to plan around it, not to shrink it.</li>
+    </ul>
+  </div>
+  <p class="source" id="source"></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmtDate = d3.utcFormat("%b %-d, %Y"), fmtShort = d3.utcFormat("%b %-d");
+  const days = (a, b) => d3.utcDay.count(a, b);
+  const LAYER = { bronze: "Bronze", silver: "Silver", gold: "Gold" };
+  const CHANGE = { add: "added", drop: "dropped", rename: "renamed", type: "type changed" };
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+  const say = (n) => (n <= 10 ? words[n] : String(n));
+  const Say = (n) => { const s = say(n); return s.charAt(0).toUpperCase() + s.slice(1); };
+  const charW = (px, mono) => px * (mono ? 0.61 : 0.53);
+  function wrap(text, maxW, px) {
+    const out = []; let line = "";
+    text.split(" ").forEach((w) => {
+      const t = line ? line + " " + w : w;
+      if (t.length * charW(px) > maxW && line) { out.push(line); line = w; } else line = t;
+    });
+    if (line) out.push(line);
+    return out;
+  }
+  function focusTip(el, html) {
+    const r = el.getBoundingClientRect();
+    Lab.tooltip.show({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }, html);
+  }
+
+  /* ---------------- data ---------------- */
+  const x0 = WH.parse(WH.first), x1 = d3.utcDay.offset(WH.parse(WH.last), 1);
+  const ev = WH.schemaEvents.map((e, i) => ({ ...e, i, layer: WH.byId[e.table].layer }))
+    .sort((a, b) => a.day - b.day || a.i - b.i);
+  ev.forEach((e) => {
+    e.after = WH.columnCountOn(e.table, e.day);
+    e.before = WH.columnCountOn(e.table, d3.utcDay.offset(e.day, -1));
+  });
+  const changedSet = new Set(ev.map((e) => e.table));
+
+  // Propagation chains: a Bronze add, then the later adds on its downstream columns.
+  const chains = ev.filter((e) => e.change === "add" && e.layer === "bronze").map((b, ci) => {
+    const ds = WH.downstreamColumns(b.table + "." + b.column);
+    const later = ev.filter((x) => x !== b && x.change === "add" && x.day >= b.day && ds.has(x.table + "." + x.column));
+    const silver = later.filter((x) => x.layer === "silver")[0] || null;
+    const gold = later.filter((x) => x.layer === "gold")[0] || null;
+    const goldCols = [...ds.keys()].filter((k) => WH.byId[k.split(".")[0]].layer === "gold");
+    const drop = ev.find((x) => x.change === "drop" && x.table === b.table && x.column === b.column && x.day > b.day) || null;
+    const status = gold ? "gold" : silver ? (goldCols.length ? "silver-pending" : "silver-only") : drop ? "dropped" : "bronze-only";
+    const c = { ci, b, silver, gold, drop, status, goldCols, members: [b, silver, gold, drop].filter(Boolean),
+      s: silver ? days(b.day, silver.day) : null, g: gold ? days(b.day, gold.day) : null, dr: drop ? days(b.day, drop.day) : null };
+    c.members.forEach((m) => { m.chain = ci; });
+    return c;
+  });
+  ev.forEach((e) => { if (e.chain == null) e.chain = "e" + e.i; });
+
+  // Nights each table was not refreshed, from the run log.
+  const runs = WH.runs();
+  const missed = new Map();
+  runs.forEach((r) => r.tasks.forEach((k) => {
+    if (k.status !== "failed" && k.status !== "upstream_failed") return;
+    if (!missed.has(k.table)) missed.set(k.table, []);
+    missed.get(k.table).push({ date: r.date, day: r.day, status: k.status, roots: r.tasks.filter((t) => t.status === "failed").map((t) => t.table) });
+  }));
+
+  // The unannounced rename and the nights it broke.
+  const uom = WH.incidents.find((i) => i.id === "uom");
+  const renameEv = ev.find((e) => e.change === "rename" && e.day >= uom.fromDay && e.day <= uom.toDay);
+  const brokeRuns = runs.filter((r) => r.day >= uom.fromDay && r.day <= uom.toDay);
+  const brokeTask = brokeRuns.map((r) => r.tasks.find((k) => k.table === renameEv.table));
+  const skipped = [...new Set(brokeRuns.flatMap((r) => r.tasks.filter((k) => k.status === "upstream_failed").map((k) => k.table)))];
+  const failDates = brokeRuns.filter((r, i) => brokeTask[i].status === "failed").map((r) => r.day);
+
+  // Of all failure roots, which coincided with a schema event on the same table that night?
+  const rootNights = runs.flatMap((r) => r.tasks.filter((k) => k.status === "failed").map((k) => ({ table: k.table, date: r.date })));
+  const driftRoots = rootNights.filter((n) => ev.some((e) => { const g = days(e.day, WH.parse(n.date)); return e.table === n.table && g >= 0 && g <= 1; }));
+  const driftTables = [...new Set(driftRoots.map((n) => n.table))];
+  const repeatRoots = rootNights.filter((n) => rootNights.some((o) => o.table === n.table && days(WH.parse(o.date), WH.parse(n.date)) === 1));
+  const repeatTables = [...new Set(repeatRoots.map((n) => n.table))];
+
+  /* ---------------- prose computed from the data ---------------- */
+  const nCh = d3.rollup(ev, (v) => v.length, (e) => e.change);
+  document.getElementById("lede-n").textContent =
+    `In a year, ${ev.length} schema changes touched ${changedSet.size} of the warehouse's ${WH.tables.length} tables: ` +
+    `${nCh.get("add") || 0} columns added, ${nCh.get("drop") || 0} dropped, ${nCh.get("rename") || 0} renamed, ${nCh.get("type") || 0} retyped.`;
+  document.getElementById("span-dates").textContent = fmtShort(x0) + ", " + x0.getUTCFullYear() + " to " + fmtDate(WH.parse(WH.last));
+  document.getElementById("lanes-readout").innerHTML =
+    `Failure roots across the year: <b>${rootNights.length}</b> table-nights. ` +
+    `Only <b>${driftRoots.length}</b> came within a day of a schema change on the failing table, ${driftRoots.length === 2 ? "both" : "all"} on ${driftTables.map(esc).join(", ")}: the rename. ` +
+    `Every other red tick is an ordinary failure that cascades down its lineage and is gone by the next run.` +
+    (repeatTables.length === 1 && repeatTables[0] === renameEv.table ? ` The rename is the only failure that came back a second night, because a retry cannot fix a contract.` : "");
+  document.getElementById("source").textContent = "Source: " + WH.source + " Schema events from WH.schemaEvents; column counts from WH.columnCountOn; failed nights from WH.runs(); propagation chains from WH.downstreamColumns.";
+
+  /* ---------------- figure 1: lanes ---------------- */
+  let showAll = false;
+  const btn = document.getElementById("toggle-unchanged");
+  const nUnchanged = WH.tables.length - changedSet.size;
+  btn.textContent = `Show the ${nUnchanged} unchanged tables`;
+  btn.addEventListener("click", () => {
+    showAll = !showAll;
+    btn.setAttribute("aria-pressed", String(showAll));
+    btn.textContent = showAll ? `Hide the ${nUnchanged} unchanged tables` : `Show the ${nUnchanged} unchanged tables`;
+    drawLanes();
+  });
+
+  let lanesSvg = null;
+  function setHot(chain) {
+    if (!lanesSvg) return;
+    lanesSvg.classed("dimming", chain != null);
+    lanesSvg.selectAll(".ev").classed("hot", (e) => chain != null && e.chain === chain);
+  }
+
+  function evTip(e) {
+    const t = WH.byId[e.table];
+    const col = e.change === "rename" ? `${esc(e.oldName)} → ${esc(e.column)}` : esc(e.column);
+    let html = `<b>${fmtDate(e.day)}</b><br><span class="tt-k">${LAYER[t.layer]}</span> ${esc(e.table)}<br>` +
+      `<span class="tt-k">${CHANGE[e.change]}</span> ${col}`;
+    if (e.after !== e.before) html += `<br><span class="tt-k">columns</span> ${e.before} → ${e.after}`;
+    if (e.note) html += `<br>${esc(e.note)}`;
+    const c = typeof e.chain === "number" ? chains[e.chain] : null;
+    if (c && c.members.length > 1) {
+      const hops = c.members.filter((m) => m !== e).map((m) => `${LAYER[m.layer]} ${fmtShort(m.day)}`);
+      html += `<br><span class="tt-k">same column, elsewhere</span> ${hops.join(", ")}`;
+    }
+    return html;
+  }
+
+  function drawLanes() {
+    const host = document.getElementById("lanes");
+    host.innerHTML = "";
+    const W = Math.max(280, Lab.width(host));
+    const wide = W >= 620;
+    const labelW = wide ? 172 : 0, rightW = 30;
+    const plotL = labelW, plotR = W - rightW;
+    const x = d3.scaleUtc().domain([x0, x1]).range([plotL, plotR]);
+    const dayW = x(d3.utcDay.offset(x0, 1)) - x(x0);
+    const K = 4;                                  // px per column, shared by every lane
+    const laneH = wide ? 24 : 36;
+
+    // rows
+    const rows = [];
+    WH.layers.forEach((L, li) => {
+      const tabs = WH.tables.filter((t) => t.layer === L);
+      const ch = tabs.filter((t) => changedSet.has(t.id));
+      rows.push({ type: "layer", layer: L, n: tabs.length, nc: ch.length, h: li === 0 ? 28 : 36 });
+      tabs.forEach((t) => {
+        if (!changedSet.has(t.id) && !showAll) return;
+        const r = { type: "lane", t, h: laneH, changed: changedSet.has(t.id) };
+        if (renameEv && t.id === renameEv.table) r.callout = true;
+        rows.push(r);
+      });
+      if (!showAll && tabs.length > ch.length) rows.push({ type: "collapsed", layer: L, n: tabs.length - ch.length, h: 22 });
+    });
+
+    // callout text
+    const sk = skipped.length;
+    const calloutHead = `Unannounced rename: ${renameEv.oldName} became ${renameEv.column}.`;
+    const calloutBody = `Loads failed ${failDates.map(fmtShort).join(" and ")}, ` +
+      `${say(d3.max(brokeTask, (k) => k.attempts))} attempts each night; ` +
+      `${say(sk)} downstream table${sk === 1 ? "" : "s"} skipped ${failDates.length === 2 ? "both nights" : "each time"}.`;
+    const cW = Math.min(wide ? 380 : W - 8, plotR - plotL);
+    const cHead = wrap(calloutHead, cW, 12.5);
+    const calloutLines = cHead.concat(wrap(calloutBody, cW, 12));
+    rows.forEach((r) => { if (r.callout) { r.extra = 10 + calloutLines.length * 15; r.h += r.extra; } });
+
+    const top = 26;
+    let y = top;
+    rows.forEach((r) => { r.y = y; y += r.h; });
+    const H = y + 8;
+
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", H)
+      .attr("viewBox", `0 0 ${W} ${H}`);
+    lanesSvg = svg;
+
+    // month grid and ticks
+    const months = d3.utcMonth.range(d3.utcMonth.ceil(x0), x1, plotR - plotL >= 600 ? 1 : 2);
+    svg.append("g").selectAll("line").data(months).join("line").attr("class", "mgrid")
+      .attr("x1", (d) => Math.round(x(d)) + 0.5).attr("x2", (d) => Math.round(x(d)) + 0.5)
+      .attr("y1", top - 6).attr("y2", H - 6);
+    svg.append("g").selectAll("text").data(months).join("text").attr("class", "mtick")
+      .attr("x", (d) => x(d) + 3).attr("y", 14)
+      .text((d, i) => (i === 0 || d.getUTCFullYear() !== months[i - 1].getUTCFullYear() ? d3.utcFormat("%b %Y")(d) : d3.utcFormat("%b")(d)));
+    svg.append("text").attr("class", "cnt-h").attr("x", plotR + 6).attr("y", 14).text("cols");
+
+    rows.forEach((r) => {
+      const g = svg.append("g").attr("transform", `translate(0,${r.y})`);
+      if (r.type === "layer") {
+        const ty = r.h - 9;
+        g.append("text").attr("class", "lname").attr("x", 0).attr("y", ty).text(LAYER[r.layer]);
+        g.append("text").attr("class", "lmeta").attr("x", 52).attr("y", ty)
+          .text(`${r.n} tables, ${r.nc} changed`);
+        return;
+      }
+      if (r.type === "collapsed") {
+        g.append("text").attr("class", "collapsed-note").attr("x", wide ? labelW - 10 : 0).attr("y", 14)
+          .attr("text-anchor", wide ? "end" : "start")
+          .text(`${r.n} more, unchanged all year`);
+        return;
+      }
+      const t = r.t;
+      g.attr("class", "lane");
+      const cy = wide ? 12 : 25;
+      const tev = ev.filter((e) => e.table === t.id);
+      const pts = [[x0, WH.columnCountOn(t.id, x0)]];
+      tev.forEach((e) => pts.push([e.day, e.after]));
+      pts.push([x1, t.columns.length]);
+      const lo = d3.min(pts, (p) => p[1]), hi = d3.max(pts, (p) => p[1]), mid = (lo + hi) / 2;
+      const yc = (n) => cy - (n - mid) * K;
+
+      g.append("line").attr("class", "lane-rule").attr("x1", wide ? 0 : 0).attr("x2", W)
+        .attr("y1", r.h - 0.5).attr("y2", r.h - 0.5).style("opacity", 0.6);
+      g.append("text").attr("class", "tname")
+        .attr("x", wide ? labelW - 10 : 0).attr("y", wide ? cy + 4 : 10)
+        .attr("text-anchor", wide ? "end" : "start").text(t.id);
+      g.append("path").attr("class", r.changed ? "step" : "step flat")
+        .attr("d", d3.line().curve(d3.curveStepAfter).x((p) => x(p[0])).y((p) => yc(p[1]))(pts));
+      g.append("text").attr("class", "cnt").attr("x", plotR + 6).attr("y", yc(t.columns.length) + 4).text(t.columns.length);
+
+      // nights not refreshed
+      const m = missed.get(t.id) || [];
+      g.append("g").selectAll("rect").data(m).join("rect").attr("class", "miss")
+        .attr("x", (d) => x(d.day)).attr("width", Math.max(1.5, dayW - 0.5))
+        .attr("y", cy + 8).attr("height", 3.5)
+        .on("pointerenter pointermove", (e, d) => Lab.tooltip.show(e,
+          `<b>${fmtDate(d.day)}</b><br>${esc(t.id)}<br><span class="tt-k">status</span> ${d.status === "failed" ? "load failed" : "skipped, upstream failed"}` +
+          (d.status === "upstream_failed" ? `<br><span class="tt-k">failed upstream</span> ${d.roots.map(esc).join(", ")}` : "")))
+        .on("pointerleave", () => Lab.tooltip.hide());
+
+      // event glyphs
+      const eg = g.append("g").selectAll("g").data(tev).join("g").attr("class", "ev")
+        .attr("tabindex", 0).attr("role", "img")
+        .attr("aria-label", (e) => `${fmtDate(e.day)}, ${e.table}, ${CHANGE[e.change]} ${e.column}`)
+        .attr("transform", (e) => `translate(${x(e.day)},${(yc(e.before) + yc(e.after)) / 2})`);
+      eg.append("circle").attr("class", "hit").attr("r", 9);
+      eg.each(function (e) {
+        const s = d3.select(this);
+        if (e.change === "add" || e.change === "drop") {
+          s.append("circle").attr("class", "bg").attr("r", 5);
+          s.append("path").attr("class", e.change).attr("d", e.change === "add" ? "M-3.6,0H3.6M0,-3.6V3.6" : "M-3.6,0H3.6");
+        } else {
+          s.append("circle").attr("class", "bg ring").attr("r", 5.5);
+          s.append("text").attr("class", "let").attr("y", 3).text(e.change === "rename" ? "R" : "T");
+        }
+      });
+      eg.on("pointerenter pointermove", (evt, e) => { setHot(e.chain); Lab.tooltip.show(evt, evTip(e)); })
+        .on("pointerleave", () => { setHot(null); Lab.tooltip.hide(); })
+        .on("focus", function (evt, e) { setHot(e.chain); focusTip(this, evTip(e)); })
+        .on("blur", () => { setHot(null); Lab.tooltip.hide(); });
+
+      if (r.callout) {
+        const gx = x(renameEv.day), gy = (yc(renameEv.before) + yc(renameEv.after)) / 2;
+        const textW = d3.max(calloutLines, (l) => l.length * charW(12.5));
+        const tx = Math.max(wide ? plotL : 0, Math.min(gx - 6, W - textW - 4));
+        const ty0 = laneH + 8;
+        g.append("path").attr("class", "leader")
+          .attr("d", `M${gx},${gy + 7}V${ty0 - 2}`);
+        const tt = g.append("text").attr("x", tx).attr("y", ty0 + 9);
+        calloutLines.forEach((l, li) => tt.append("tspan").attr("x", tx).attr("dy", li ? 15 : 0)
+          .attr("class", li < cHead.length ? "callout-k" : "callout").text(l));
+      }
+    });
+  }
+
+  /* ---------------- figure 2: propagation ---------------- */
+  const statusOrder = { gold: 0, "silver-pending": 1, "silver-only": 2, dropped: 3, "bronze-only": 4 };
+  const prop = chains.slice().sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || (b.g ?? b.s ?? b.dr ?? 0) - (a.g ?? a.s ?? a.dr ?? 0));
+  const gold = prop.filter((c) => c.status === "gold");
+  const bs = prop.filter((c) => c.s != null).map((c) => c.s);
+  const sg = gold.map((c) => c.g - c.s);
+  const exact14 = bs.filter((d) => d === 14).length;
+  const silverOnly = prop.filter((c) => c.status === "silver-only");
+  const dropped = prop.filter((c) => c.status === "dropped");
+  const nameOf = (c) => {
+    const names = [c.b.column, c.silver && c.silver.column, c.gold && c.gold.column].filter(Boolean);
+    const last = names[names.length - 1];
+    return last !== c.b.column ? `${c.b.column} → ${last}` : c.b.column;
+  };
+  document.getElementById("prop-readout").innerHTML =
+    `${Say(prop.length)} columns first landed in Bronze this year. <b>${Say(gold.length)}</b> reached Gold, in a median of <b>${d3.median(gold, (c) => c.g)} days</b> ` +
+    `(${d3.min(gold, (c) => c.g)} to ${d3.max(gold, (c) => c.g)}). Bronze to Silver took a median of <b>${d3.median(bs)}</b> days, and ` +
+    `${say(exact14)} of ${say(bs.length)} took exactly 14: that is a sprint boundary, not a pipeline. Silver to Gold is the noisier hop, ${d3.min(sg)} to ${d3.max(sg)} days.`;
+  const born = ev.filter((e) => e.change === "add" && e.layer !== "bronze" && typeof e.chain !== "number");
+  document.getElementById("prop-foot").innerHTML =
+    `Not plotted: ${say(born.length)} columns born downstream with no Bronze change behind them, ` +
+    born.map((e) => `<code>${esc(e.column)}</code> in ${esc(e.table)}`).join(", ") +
+    `. Derived and modeled columns skip the queue because no source owner has to agree to them.`;
+
+  function propTip(c) {
+    let h = `<b>${esc(nameOf(c))}</b><br><span class="tt-k">Bronze</span> ${esc(c.b.table)}, ${fmtDate(c.b.day)}`;
+    if (c.silver) h += `<br><span class="tt-k">Silver</span> ${esc(c.silver.table)}, ${fmtDate(c.silver.day)} (+${c.s} d)`;
+    if (c.gold) h += `<br><span class="tt-k">Gold</span> ${esc(c.gold.table)}, ${fmtDate(c.gold.day)} (+${c.g} d)`;
+    if (c.drop) h += `<br><span class="tt-k">dropped</span> ${fmtDate(c.drop.day)} (+${c.dr} d)`;
+    if (c.status === "silver-only") h += `<br>No Gold column reads it.`;
+    return h;
+  }
+
+  function drawProp() {
+    const host = document.getElementById("prop");
+    host.innerHTML = "";
+    const W = Math.max(280, Lab.width(host));
+    const wide = W >= 620;
+    const labelW = wide ? 272 : 0, rightW = 62;
+    const maxD = d3.max(prop, (c) => Math.max(c.g ?? 0, c.s ?? 0, c.dr ?? 0));
+    const dom = Math.ceil((maxD + 1) / 7) * 7;
+    const x = d3.scaleLinear().domain([0, dom]).range([labelW + 6, W - rightW]);
+    const top = 8, cyOff = wide ? 15 : 27, lineH = 14;
+    const whyOf = (c) => {
+      if (c.status === "gold") return wide ? [c.b, c.silver, c.gold].map((m) => m.table).join(" → ") : "";
+      if (c.status === "silver-only") return `Silver after ${c.s} days. No Gold table reads it, so it stops there.`;
+      if (c.status === "silver-pending") return `Silver after ${c.s} days. Lineage reaches ${c.goldCols.join(", ")}; still waiting.`;
+      if (c.status === "dropped") return `Dropped at the source after ${c.dr} days. Never conformed.`;
+      return "Still only in Bronze.";
+    };
+    let yy = top;
+    prop.forEach((c) => {
+      const w = whyOf(c);
+      c._why = w ? wrap(w, W - x(0) - 4, 11) : [];
+      c._y = yy;
+      c._h = cyOff + (c._why.length ? 6 + c._why.length * lineH : 10) + 4;
+      yy += c._h;
+    });
+    const bottom = yy;
+    const H = bottom + 34;
+    const svg = d3.select(host).append("svg").attr("width", W).attr("height", H).attr("viewBox", `0 0 ${W} ${H}`);
+    const wk = d3.range(0, dom + 1, 7);
+    svg.append("g").selectAll("line").data(wk).join("line")
+      .attr("class", (d) => (d % 14 === 0 ? "wgrid sprint" : "wgrid"))
+      .attr("x1", (d) => Math.round(x(d)) + 0.5).attr("x2", (d) => Math.round(x(d)) + 0.5)
+      .attr("y1", top).attr("y2", bottom);
+    svg.append("g").selectAll("text").data(wk).join("text").attr("class", "mtick")
+      .attr("x", (d) => x(d)).attr("y", bottom + 14).attr("text-anchor", "middle").text((d) => d);
+    svg.append("text").attr("class", "xlab").attr("x", x(0)).attr("y", bottom + 30)
+      .text("days after the column first landed in Bronze");
+
+    const rows = svg.append("g").selectAll("g").data(prop).join("g").attr("class", "prow")
+      .attr("transform", (c) => `translate(0,${c._y})`);
+    rows.append("rect").attr("class", "hit").attr("x", 0).attr("width", W).attr("height", (c) => c._h);
+    rows.each(function (c) {
+      const g = d3.select(this);
+      const cy = cyOff;
+      g.append("text").attr("class", "pname").attr("x", wide ? labelW - 10 : 0).attr("y", wide ? cy + 4 : 11)
+        .attr("text-anchor", wide ? "end" : "start").text(nameOf(c));
+      if (c._why.length) {
+        const t = g.append("text").attr("class", c.status === "gold" ? "ppath" : "why").attr("x", x(0)).attr("y", cy + 19);
+        c._why.forEach((l, li) => t.append("tspan").attr("x", x(0)).attr("dy", li ? lineH : 0).text(l));
+      }
+      if (c.s != null) g.append("line").attr("class", "seg").attr("x1", x(0)).attr("x2", x(c.s)).attr("y1", cy).attr("y2", cy);
+      if (c.g != null) g.append("line").attr("class", "seg").attr("x1", x(c.s)).attr("x2", x(c.g)).attr("y1", cy).attr("y2", cy);
+      if (c.dr != null) {
+        g.append("line").attr("class", "seg dash").attr("x1", x(0)).attr("x2", x(c.dr)).attr("y1", cy).attr("y2", cy);
+        const dg = g.append("g").attr("transform", `translate(${x(c.dr)},${cy})`);
+        dg.append("circle").attr("r", 5).style("fill", "var(--surface-1)");
+        dg.append("path").attr("d", "M-3.6,0H3.6").style("stroke", "var(--div-neg)").style("stroke-width", 1.8).style("stroke-linecap", "round");
+      }
+      g.append("circle").attr("class", "d-b").attr("cx", x(0)).attr("cy", cy).attr("r", 3.8);
+      if (c.s != null) g.append("circle").attr("class", "d-s").attr("cx", x(c.s)).attr("cy", cy).attr("r", 4);
+      if (c.g != null) {
+        g.append("circle").attr("class", "d-g").attr("cx", x(c.g)).attr("cy", cy).attr("r", 4.3);
+        g.append("text").attr("class", "tot").attr("x", x(c.g) + 9).attr("y", cy + 4).text(`${c.g} days`);
+      }
+    });
+    rows.on("pointerenter pointermove", (evt, c) => { d3.select(evt.currentTarget).classed("on", true); setHot(c.ci); Lab.tooltip.show(evt, propTip(c)); })
+      .on("pointerleave", (evt) => { d3.select(evt.currentTarget).classed("on", false); setHot(null); Lab.tooltip.hide(); });
+  }
+
+  Lab.responsive(() => { drawLanes(); drawProp(); });
+
+  /* ---------------- table twin ---------------- */
+  Lab.tableView("#events-table", [
+    { key: "day", label: "Date", format: (d) => WH.fmtDay(d) },
+    { key: "layer", label: "Layer", format: (v) => LAYER[v] },
+    { key: "table", label: "Table" },
+    { key: "change", label: "Change", format: (v) => CHANGE[v] },
+    { key: "column", label: "Column" },
+    { key: "oldName", label: "Was", format: (v) => v || "" },
+    { key: "before", label: "Cols before", align: "r" },
+    { key: "after", label: "Cols after", align: "r" },
+    { key: "note", label: "Note", format: (v) => v || "" },
+  ], ev, `Show all ${ev.length} schema events as a table`);
+})();
+</script>
+</body>
+</html>

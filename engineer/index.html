@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The engineer's eye · Data Viz Lab</title>
+<meta name="description" content="Load logs, lineage, star schemas, data-quality tests and schema drift, drawn with a data visualization practitioner's eye.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="warehouse.js"></script>
+<style>
+  .cards .card .thumb { height: 160px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 1.5rem 0 0.5rem; }
+  .fact { border-top: 2px solid var(--text-primary); padding-top: 6px; }
+  .fact .v { font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .fact .k { font-size: 0.85rem; color: var(--text-secondary); }
+  .layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 32px; margin-top: 0.8rem; }
+  .layers p { margin: 0.3rem 0; font-size: 0.95rem; color: var(--text-secondary); }
+  .layers strong { color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/" aria-current="true">Engineer's eye</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">The engineer's eye</p>
+  <h1>The engineer's eye</h1>
+  <p class="lede">Data engineers spend their nights inside load logs, lineage graphs, star schemas and test results, and almost all of it gets drawn as a red-or-green table. These pages draw it the way a visualization person would: one warehouse, one year of nightly loads, five ways of looking.</p>
+
+  <div class="facts" id="facts" aria-label="The warehouse in numbers"></div>
+  <p class="source">Computed in-page from the shared model below.</p>
+
+  <div class="cards">
+    <a class="card" href="heartbeat.html">
+      <div class="thumb" id="t-heart" aria-hidden="true"></div>
+      <div class="body">
+        <h3>The nightly heartbeat</h3>
+        <p>A year of Gold finish times in one strip, and any night opened up task by task: what waited on a source, a dependency or a free slot, and which chain set the finish.</p>
+      </div>
+    </a>
+    <a class="card" href="lineage.html">
+      <div class="thumb" id="t-lineage" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Lineage as a transit map</h3>
+        <p>Source systems as lines, tables as stations, conformed tables as interchanges. Then a single Gold column traced back to the Bronze columns it came from.</p>
+      </div>
+    </a>
+    <a class="card" href="constellation.html">
+      <div class="thumb" id="t-sky" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Star schemas, taken literally</h3>
+        <p>Facts as constellations, conformed dimensions as the stars they share. Beside it, the Kimball bus matrix, which says the same thing more usefully.</p>
+      </div>
+    </a>
+    <a class="card" href="dq-calendar.html">
+      <div class="thumb" id="t-dq" aria-hidden="true"></div>
+      <div class="body">
+        <h3>A year of tests</h3>
+        <p>Every data-quality result on a calendar. The weekly rhythm, the incidents, and the month-end test that cries wolf twelve times a year.</p>
+      </div>
+    </a>
+    <a class="card" href="schema-drift.html">
+      <div class="thumb" id="t-drift" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Schema drift</h3>
+        <p>Every table's columns over the year, and how long a new column takes to travel from Bronze to Gold.</p>
+      </div>
+    </a>
+  </div>
+
+  <h2>The warehouse</h2>
+  <p>A fictional distributor running a medallion warehouse of the kind you would build in Fabric: six source systems landing nightly, cleaned and conformed, then modeled into a star schema. The year is simulated, not drawn by hand. A scheduler with four slots runs each table when its source has arrived and its dependencies have finished, so every wait, cascade and late night follows from the rules.</p>
+  <div class="layers">
+    <p><strong>Bronze.</strong> Raw landings from ERP, CRM, warehouse management, web events, the general ledger and HR. Append-only, typed as the source sends it.</p>
+    <p><strong>Silver.</strong> Cleaned, typed and conformed. Customers merged across ERP and CRM; currency converted; sessions built from events.</p>
+    <p><strong>Gold.</strong> Seven dimensions and seven facts. The layer the business reads, and the one with a 06:00 deadline.</p>
+  </div>
+  <p>Six stories are planted in the year and left for the pictures to find: Black Friday, an unannounced ERP rename, a spring of orphaned CRM accounts, a fortnight of throttled capacity, a bot, and a CRM vendor that cut its API limits.</p>
+
+  <p class="source" id="src"></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  const runs = WH.runs(), dq = WH.dq();
+  document.getElementById("src").textContent = "Source: " + WH.source;
+
+  // Headline facts, all computed.
+  const facts = [
+    [WH.tables.length, "tables in three layers"],
+    [WH.sources.length, "source systems"],
+    [runs.length, "nightly loads"],
+    [WH.clock(d3.median(runs, (r) => r.goldEnd)), "median Gold finish"],
+    [runs.filter((r) => !r.slaMet).length, "nights that missed 06:00 or broke"],
+    [d3.format(",")(d3.sum(dq, (d) => d.pass + d.warn + d.fail + d.notRun)), "test results"],
+  ];
+  d3.select("#facts").selectAll(".fact").data(facts).join("div").attr("class", "fact")
+    .html(([v, k]) => `<div class="v">${v}</div><div class="k">${k}</div>`);
+
+  function svg(id) {
+    const el = document.getElementById(id);
+    const w = el.clientWidth || 300, h = el.clientHeight || 160;
+    el.innerHTML = "";
+    return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
+  }
+
+  // Heartbeat: Gold finish per night, SLA line.
+  (function () {
+    const { s, w, h } = svg("t-heart");
+    const x = d3.scaleLinear([0, runs.length - 1], [14, w - 14]);
+    const y = d3.scaleLinear([60, 540], [16, h - 16]);
+    s.append("line").attr("x1", 14).attr("x2", w - 14).attr("y1", y(WH.slaMinutes)).attr("y2", y(WH.slaMinutes))
+      .style("stroke", "var(--text-muted)").style("stroke-dasharray", "3 3");
+    s.selectAll("line.n").data(runs).join("line").attr("class", "n")
+      .attr("x1", (d, i) => x(i)).attr("x2", (d, i) => x(i)).attr("y1", y(60)).attr("y2", (d) => y(d.goldEnd))
+      .style("stroke", (d) => d.slaMet ? "var(--axis)" : "var(--critical)").style("stroke-width", 1);
+  })();
+
+  // Lineage: six lines converging through three zones.
+  (function () {
+    const { s, w, h } = svg("t-lineage");
+    const n = WH.sources.length, z = [w * 0.12, w * 0.42, w * 0.72, w * 0.9];
+    WH.sources.forEach((src, i) => {
+      const y0 = 22 + i * ((h - 44) / (n - 1)), y1 = h / 2 + (i - (n - 1) / 2) * 7;
+      const p = d3.path();
+      p.moveTo(z[0], y0); p.lineTo(z[1] - Math.abs(y0 - y1) * 0.5, y0);
+      p.lineTo(z[1] + Math.abs(y0 - y1) * 0.5, y1); p.lineTo(z[3], y1);
+      s.append("path").attr("d", p.toString()).style("fill", "none").style("stroke", WH.sourceColor(src.id)).style("stroke-width", 4).style("stroke-linecap", "round");
+      [z[0] + 18, z[1] - 30].forEach((cx) => s.append("circle").attr("cx", cx).attr("cy", y0).attr("r", 3.2)
+        .style("fill", "var(--surface-1)").style("stroke", WH.sourceColor(src.id)).style("stroke-width", 1.5));
+    });
+    [z[2], z[3]].forEach((cx) => s.append("rect").attr("x", cx - 6).attr("y", h / 2 - 24).attr("width", 12).attr("height", 48).attr("rx", 6)
+      .style("fill", "var(--surface-1)").style("stroke", "var(--text-primary)").style("stroke-width", 1.5));
+  })();
+
+  // Constellation: facts and the dims they share, on a dark panel.
+  (function () {
+    const el = document.getElementById("t-sky");
+    el.style.background = "#0d0d0d";
+    const { s, w, h } = svg("t-sky");
+    const facts = WH.tables.filter((t) => t.kind === "fact"), dims = WH.tables.filter((t) => t.kind === "dim");
+    const top = Math.ceil(facts.length / 2);
+    const fp = facts.map((t, i) => { const row = i < top ? 0 : 1, k = row ? i - top : i, n = row ? facts.length - top : top;
+      return { t, x: w * (0.12 + 0.76 * (n > 1 ? k / (n - 1) : 0.5)), y: row ? h * 0.78 : h * 0.24 }; });
+    const dp = dims.map((t) => {
+      const users = fp.filter((f) => f.t.deps.includes(t.id));
+      return { t, x: d3.mean(users, (u) => u.x) + (t.id.length % 5 - 2) * 9, y: d3.mean(users, (u) => u.y) + (t.id.length % 3 - 1) * 12 };
+    });
+    fp.forEach((f) => dp.filter((d) => f.t.deps.includes(d.t.id)).forEach((d) =>
+      s.append("line").attr("x1", f.x).attr("y1", f.y).attr("x2", d.x).attr("y2", d.y).style("stroke", "#c3c2b7").style("stroke-opacity", 0.35)));
+    const rr = d3.scaleSqrt([0, Math.log10(5e7)], [0.8, 4.6]);
+    const rnd = Lab.rng(3);
+    for (let i = 0; i < 60; i++) s.append("circle").attr("cx", rnd() * w).attr("cy", rnd() * h).attr("r", 0.6).style("fill", "#898781");
+    dp.concat(fp).forEach((p) => s.append("circle").attr("cx", p.x).attr("cy", p.y).attr("r", rr(Math.log10(p.t.size))).style("fill", "#f0efec"));
+  })();
+
+  // DQ calendar: weeks x weekdays, sequential by issues.
+  (function () {
+    const { s, w, h } = svg("t-dq");
+    const weeks = Math.ceil(dq.length / 7) + 1, cell = Math.min((w - 20) / weeks, (h - 20) / 7);
+    const start = d3.utcWeek.floor(dq[0].day);
+    const col = d3.scaleThreshold([1, 3, 6, 10], ["var(--surface-2)", "var(--seq-200)", "var(--seq-400)", "var(--seq-500)", "var(--seq-700)"]);
+    const x0 = (w - weeks * cell) / 2, y0 = (h - 7 * cell) / 2;
+    s.selectAll("rect").data(dq).join("rect")
+      .attr("x", (d) => x0 + d3.utcWeek.count(start, d.day) * cell).attr("y", (d) => y0 + d.day.getUTCDay() * cell)
+      .attr("width", cell - 1).attr("height", cell - 1).style("fill", (d) => col(d.warn + d.fail));
+  })();
+
+  // Drift: one lane per changed table, step lines with event ticks.
+  (function () {
+    const { s, w, h } = svg("t-drift");
+    const changed = [...new Set(WH.schemaEvents.map((e) => e.table))];
+    const x = d3.scaleUtc([WH.parse(WH.first), WH.parse(WH.last)], [14, w - 14]);
+    const lane = (h - 20) / changed.length;
+    changed.forEach((id, i) => {
+      const y = 10 + i * lane + lane / 2;
+      s.append("line").attr("x1", 14).attr("x2", w - 14).attr("y1", y).attr("y2", y).style("stroke", "var(--grid)");
+      WH.schemaEvents.filter((e) => e.table === id).forEach((e) => s.append("rect")
+        .attr("x", x(e.day) - 1).attr("y", y - lane * 0.4).attr("width", 2.5).attr("height", lane * 0.8)
+        .style("fill", e.change === "add" ? "var(--div-pos)" : e.change === "drop" ? "var(--div-neg)" : "var(--text-secondary)"));
+    });
+  })();
+})();
+</script>
+</body>
+</html>

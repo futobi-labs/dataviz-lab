@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="assets/css/lab.css">
 <script src="assets/vendor/d3-7.9.0.min.js"></script>
 <script src="assets/js/lab.js"></script>
+<script src="engineer/warehouse.js"></script>
 <style>
   .hero { padding: 1.5rem 0 0.5rem; }
   .hero h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); letter-spacing: -0.03em; margin-bottom: 0.3em; }
@@ -17,12 +18,25 @@
   .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 32px; margin-top: 1rem; }
   .principles p { margin: 0.3rem 0; font-size: 0.95rem; color: var(--text-secondary); }
   .principles strong { color: var(--text-primary); font-weight: 600; }
+  .feature { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); text-decoration: none; margin: 2rem 0 0.5rem;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; transition: border-color 120ms; }
+  .feature:hover { border-color: var(--text-muted); }
+  .feature-art { min-height: 260px; background: var(--surface-2); border-right: 1px solid var(--border); }
+  .feature-art svg { width: 100%; height: 100%; display: block; }
+  .feature-body { padding: 22px 24px; }
+  .feature-body h2 { margin: 0 0 0.5rem; font-size: 1.6rem; }
+  .feature-body p { color: var(--text-secondary); margin: 0 0 0.6rem; }
+  .feature-cta { color: var(--text-primary) !important; font-weight: 600; }
+  .feature-cta::after { content: " \2192"; }
+  h2.studies { margin-top: 2.4rem; }
+  @media (max-width: 720px) { .feature { grid-template-columns: 1fr; } .feature-art { min-height: 200px; border-right: 0; border-bottom: 1px solid var(--border); } }
 </style>
 </head>
 <body>
 <header class="site-header">
   <a class="brand" href="./">Data Viz Lab</a>
   <nav>
+    <a href="engineer/">Engineer's eye</a>
     <a href="experimental/">Experimental</a>
     <a href="few/">Stephen Few</a>
     <a href="tufte/">Tufte</a>
@@ -33,12 +47,24 @@
 
 <main>
   <section class="hero">
-    <p class="kicker">A working notebook</p>
+    <p class="kicker">Tanner Spaulding's working notebook</p>
     <h1>Data Viz Lab</h1>
-    <p class="lede">Four ways of looking at the same craft. One room for strange D3 experiments, one held to Stephen Few's discipline, one in Edward Tufte's ink-and-paper tradition, and one for the forms that came after both of them.</p>
+    <p class="lede">Years of building pipelines, warehouses and star schemas, looked at again with a visualization person's eye. The main room draws the things a data engineer actually stares at. The four smaller rooms are studies in craft: strange D3, Stephen Few's discipline, Edward Tufte's ink, and what came after them.</p>
   </section>
 
-  <div class="sections">
+  <a class="feature" href="engineer/">
+    <div class="feature-art" id="t-feature" aria-hidden="true"></div>
+    <div class="feature-body">
+      <p class="kicker">The main room</p>
+      <h2>The engineer's eye</h2>
+      <p>One warehouse, one year of nightly loads, five ways of looking: the nightly heartbeat, lineage as a transit map, star schemas as constellations, a year of data-quality tests, and schema drift.</p>
+      <p class="feature-cta">Open the room</p>
+    </div>
+  </a>
+
+  <h2 class="studies">Studies</h2>
+
+  <div class="sections" style="margin-top:0.8rem">
     <a class="card" href="experimental/">
       <div class="thumb" id="t-exp" aria-hidden="true"></div>
       <div class="body">
@@ -96,6 +122,29 @@
     el.innerHTML = "";
     return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
   }
+
+  // Feature: a year of nightly Gold finish times, SLA line, incidents labeled.
+  (function () {
+    const { s, w, h } = svg("t-feature");
+    const runs = WH.runs();
+    const m = { l: 44, r: 16, t: 26, b: 26 };
+    const x = d3.scaleUtc([runs[0].day, runs[runs.length - 1].day], [m.l, w - m.r]);
+    const y = d3.scaleLinear([60, 540], [m.t, h - m.b]);
+    [120, 240, 360, 480].forEach((t) => {
+      s.append("line").attr("x1", m.l).attr("x2", w - m.r).attr("y1", y(t)).attr("y2", y(t))
+        .style("stroke", t === WH.slaMinutes ? "var(--text-muted)" : "var(--grid)").style("stroke-dasharray", t === WH.slaMinutes ? "4 3" : null);
+      s.append("text").attr("class", "label").attr("x", m.l - 6).attr("y", y(t) + 4).attr("text-anchor", "end").style("font-size", "10px").text(WH.clock(t));
+    });
+    s.append("text").attr("class", "label").attr("x", w - m.r).attr("y", y(WH.slaMinutes) - 5).attr("text-anchor", "end").style("font-size", "10px").text("06:00 deadline");
+    s.selectAll("line.n").data(runs).join("line").attr("class", "n")
+      .attr("x1", (d) => x(d.day)).attr("x2", (d) => x(d.day)).attr("y1", y(60)).attr("y2", (d) => y(d.goldEnd))
+      .style("stroke", (d) => d.slaMet ? "var(--axis)" : "var(--critical)").style("stroke-width", 1.2);
+    s.append("text").attr("class", "label-strong").attr("x", m.l).attr("y", 15).style("font-size", "11px").text("Gold finish time, every night for a year");
+    WH.incidents.filter((i) => ["bf", "throttle", "bots"].includes(i.id)).forEach((i) => {
+      const worst = runs.filter((r) => r.day >= i.fromDay && r.day <= i.toDay).sort((a, b) => b.goldEnd - a.goldEnd)[0];
+      s.append("text").attr("class", "label").attr("x", x(worst.day) + 4).attr("y", Math.min(y(worst.goldEnd) + 4, h - m.b - 4)).style("font-size", "10px").text(i.title);
+    });
+  })();
 
   // Experimental: a phyllotaxis spiral, colored by a hidden category.
   (function () {

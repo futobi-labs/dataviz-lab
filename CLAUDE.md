@@ -4,7 +4,8 @@ Static GitHub Pages site. No build, no bundler, no framework. Pushing to `main` 
 (Pages deploys the branch root; `.nojekyll` disables Jekyll). Live: https://tannerspaulding.github.io/dataviz-lab/
 
 ## Layout
-- `index.html`: home, four section cards with live thumbnails.
+- `index.html`: home. The featured room is `engineer/`; the four studies follow as cards with live thumbnails.
+- `engineer/`: "The engineer's eye", the signature section. Every page loads `engineer/warehouse.js` (`window.WH`): one synthetic medallion warehouse (42 tables, 6 sources), a simulated year of nightly loads (`WH.runs()`), data-quality results (`WH.dq()`), column lineage (`WH.columnEdges`) and schema events. Never generate separate data on these pages; extend `warehouse.js` instead. If real, scrubbed metadata arrives, load it into the same shapes.
 - `experimental/`, `few/`, `tufte/`, `new/`: each has an `index.html` (cards) plus one HTML file per piece.
 - `assets/css/lab.css`: all design tokens and shared classes. Light/dark via `prefers-color-scheme` plus `[data-theme]` set by the header toggle.
 - `assets/js/lab.js`: `window.Lab` helpers (seeded RNG `Lab.rng`, `Lab.randn`, `Lab.walk`, `Lab.tooltip`, `Lab.tableView`, `Lab.responsive`, `Lab.canvas`, `Lab.css`, `Lab.onTheme`, `Lab.fmt`).

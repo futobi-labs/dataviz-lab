@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Star schemas, taken literally · Data Viz Lab</title>
+<meta name="description" content="A Gold layer drawn as a night sky: each fact table a constellation, conformed dimensions as shared stars, magnitude as log rows, halos as a year of data-quality trouble. Beside it, the Kimball bus matrix that says the same thing plainly.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="warehouse.js"></script>
+<style>
+  .back { margin: 0 0 1.2rem; font-size: 0.88rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+
+  /* The sky is a dark panel in both themes. Its colors are the dark-theme token values,
+     scoped here so the shared classes (.controls, .figure-sub, .legend) inherit them. */
+  .figure.sky {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #0d0d0d; --surface-2: #1a1a19;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --accent: #3987e5;
+    --sky-star: #f0efec; --sky-line: #c3c2b7; --sky-dust: #898781;
+    background: var(--surface-1); color: var(--text-primary); border-color: var(--border);
+  }
+  .sky .figure-title { color: var(--text-primary); }
+  .sky .readout { margin: 0 0 6px; font-size: 0.88rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+  .sky .readout b { color: var(--text-primary); font-weight: 600; }
+  .sky .readout .inc { color: var(--text-primary); }
+  .sky .controls output { font-variant-numeric: tabular-nums; color: var(--text-primary); min-width: 7.5em; }
+  .sky .controls input[type="range"] { width: min(260px, 52vw); }
+  #sky { position: relative; width: 100%; touch-action: manipulation; }
+  #sky svg { display: block; overflow: visible; }
+  .star-name { font: 600 12px var(--mono); fill: var(--sky-star); }
+  .star-sub { font: 11px var(--sans); fill: var(--text-muted); }
+  .dim-name { font: 11px var(--mono); fill: var(--sky-line); }
+  .star-label { paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+  .hit { cursor: pointer; fill: transparent; }
+  .hit:focus { outline: none; }
+  .hit:focus-visible { stroke: var(--accent); stroke-width: 1.5; }
+  .flare, .halo, .star, .cline, .star-label, .dust { transition: opacity 160ms, stroke 160ms; }
+  .sky-legend { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center; margin: 10px 0 0; font-size: 0.82rem; color: var(--text-secondary); }
+  .sky-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sky-legend svg { display: inline-block; vertical-align: middle; }
+
+  .cm-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .cm-grid .figure { margin: 0; }
+  @media (max-width: 860px) { .cm-grid { grid-template-columns: 1fr; } }
+  #matrix svg { display: block; }
+  .mx-row, .mx-col { cursor: pointer; }
+  .mx-row:focus, .mx-col:focus { outline: none; }
+  .mx-row:focus-visible text, .mx-col:focus-visible text { text-decoration: underline; }
+  .mx-label { font: 11px var(--mono); fill: var(--text-secondary); }
+  .mx-label.on { fill: var(--text-primary); font-weight: 600; }
+  .mx-total { font: 11px var(--sans); fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .mx-cell { cursor: pointer; }
+
+  #card h3 { margin: 0 0 2px; font: 600 1rem var(--mono); }
+  #card .meta { color: var(--text-secondary); font-size: 0.88rem; margin: 0 0 10px; }
+  #card .hint { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+  #card h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 14px 0 4px; font-weight: 600; }
+  #card ul.cols { list-style: none; padding: 0; margin: 0; columns: 2 12em; column-gap: 18px; font: 12px/1.7 var(--mono); }
+  #card ul.cols li { break-inside: avoid; max-width: none; }
+  #card .tag { font: 10.5px var(--sans); color: var(--text-muted); margin-left: 6px; }
+  #card .tag.key { color: var(--accent); }
+  #card table.lab { font-size: 0.82rem; width: 100%; }
+  #card table.lab td { vertical-align: top; }
+  #card .dqline { font-size: 0.88rem; color: var(--text-secondary); margin: 2px 0; max-width: none; }
+  #card .dqline b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  #card .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  #card .chips button { font: 11.5px var(--mono); color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; cursor: pointer; }
+  #card .chips button:hover { border-color: var(--text-muted); }
+  .k { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/" aria-current="true">Engineer's eye</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← The engineer's eye</a></p>
+  <p class="kicker">The engineer's eye</p>
+  <h1>Star schemas, taken literally</h1>
+  <p class="lede">Kimball named the star schema after a drawing: one fact table in the middle, its dimensions around it. Draw a whole Gold layer that way and the stars start to overlap, because the good dimensions are shared. That overlap is the point of the model, and it is easier to feel in a sky than in a diagram tool.</p>
+
+  <div class="figure sky" id="sky-fig">
+    <p class="figure-title">The Gold layer of <span id="co"></span>: <span id="n-facts"></span> constellations, <span id="n-dims"></span> dimension stars</p>
+    <p class="figure-sub">Each fact is the bright star of its constellation; lines run to the dimensions it joins. A star shared by several constellations is a conformed dimension, and the layout puts it between the facts that use it. Magnitude is log row count. The halo grows with the nights this year the table had a test warn or fail. Faint field stars are the Bronze and Silver tables, sitting beside what they feed. Hover for detail; click a star to light up everything that conforms to it.</p>
+    <div class="controls">
+      <button id="play" type="button">Play the year</button>
+      <label>Night <input id="night" type="range" min="0" max="364" step="1" value="364" aria-label="Load night"><output id="night-v">All year</output></label>
+      <button id="allyear" type="button">All year</button>
+      <button id="hide-date" type="button" aria-pressed="false">Hide dim_date</button>
+      <button id="dust" type="button" aria-pressed="true">Field stars</button>
+    </div>
+    <p class="readout" id="readout" aria-live="polite"></p>
+    <div id="sky"></div>
+    <div class="sky-legend" id="sky-legend"></div>
+  </div>
+
+  <p id="obs-cust"></p>
+  <p id="obs-gl"></p>
+
+  <h2>The same sky, as a bus matrix</h2>
+  <p>Here is the boring version. Facts down the side, dimensions across the top, a dot where a fact joins a dimension, both sorted by how much they are shared. It holds exactly the same information as the sky. Ask "which facts share dim_customer?" and the matrix answers in one glance down a column; the sky makes you trace five lines and count. The matrix is the tool. The sky is the thing you show a steering committee so they understand why a conformed customer dimension is worth a quarter of work.</p>
+
+  <div class="cm-grid">
+    <div class="figure">
+      <p class="figure-title">Kimball bus matrix</p>
+      <p class="figure-sub">Totals: dimensions per fact on the right, facts per dimension below. Hover a dot for the join column and the source column it plays. Click a row or column to select it in the sky.</p>
+      <div id="matrix"></div>
+    </div>
+    <div class="figure" id="card" aria-live="polite"></div>
+  </div>
+  <div id="gold-table"></div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li>Kimball called it a star schema for the picture, and the bus matrix is its star chart. Read literally, conformed dimensions become stars that several constellations share, which is the clearest image I know for why conforming them matters.</li>
+      <li>The literal reading earns its keep in the halos. dim_customer looks clean and its neighbors glow: a shared dimension shares its problems, and its own tests cannot see them.</li>
+      <li>dim_date is the pole star. It sits in every constellation, so its column in the bus matrix is solid dots and tells you nothing. Hide it and the real structure shows: fct_gl is an island, joined to the rest only by the calendar.</li>
+      <li>What the sky hides: grain, and roles. dim_date is one star but plays a different date in every fact (order, ship, snapshot, session start, posting, invoice, close). The matrix tooltip names the role; a proper bus matrix would print it in the cell.</li>
+      <li>The fair pushback: a constellation is decoration unless the encodings carry data. Here position comes from the join graph, magnitude from rows, halo from tests, and the replay from each night's results. Distances between stars still mean nothing exact. Do not read them.</li>
+    </ul>
+  </div>
+  <p class="source" id="source"></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- the model ---------------- */
+  const facts = WH.tables.filter((t) => t.kind === "fact");
+  const dims = WH.tables.filter((t) => t.kind === "dim");
+  const gold = facts.concat(dims);
+  const upstream = WH.tables.filter((t) => t.layer !== "gold");
+  const isGold = new Set(gold.map((t) => t.id));
+  const dimsOf = Object.fromEntries(facts.map((f) => [f.id, f.deps.filter((d) => WH.byId[d].kind === "dim")]));
+  const factsOf = Object.fromEntries(dims.map((d) => [d.id, facts.filter((f) => dimsOf[f.id].includes(d.id)).map((f) => f.id)]));
+  const keyDim = {};
+  dims.forEach((d) => { keyDim[d.columns[0].name] = d.id; });
+  function joinOf(f, d) {
+    const c = WH.byId[f].columns.find((x) => keyDim[x.name] === d);
+    if (!c) return null;
+    const from = c.spec ? c.spec.split(",")[0] : null;
+    return { col: c.name, from };
+  }
+  const LORE = {
+    fct_sales:           ["The Merchant", "order line"],
+    fct_shipments:       ["The Carter", "shipment"],
+    fct_inventory_daily: ["The Granary", "item, site, day"],
+    fct_web_sessions:    ["The Moth", "web session"],
+    fct_gl:              ["The Ledger", "journal line"],
+    fct_receivables:     ["The Debtor", "invoice"],
+    fct_pipeline:        ["The Angler", "opportunity"],
+  };
+  const subOf = (id) => LORE[id][0] + " · per " + LORE[id][1];
+
+  // Bus matrix order: dims by usage, facts by dim count then by their dot pattern.
+  const dimOrder = dims.slice().sort((a, b) => factsOf[b.id].length - factsOf[a.id].length || dims.indexOf(a) - dims.indexOf(b)).map((d) => d.id);
+  const pattern = (f) => dimOrder.map((d) => (dimsOf[f].includes(d) ? "1" : "0")).join("");
+  const factOrder = facts.map((f) => f.id).sort((a, b) => dimsOf[b].length - dimsOf[a].length || (pattern(a) < pattern(b) ? 1 : pattern(a) > pattern(b) ? -1 : 0));
+
+  /* ---------------- a year of tests ---------------- */
+  const dq = WH.dq();
+  const yearFrom = WH.parse(WH.first), yearTo = WH.parse(WH.last);
+  const stats = {};
+  gold.forEach((t) => { stats[t.id] = { warnN: 0, failN: 0, issueN: 0, notRunN: 0, tests: new Map() }; });
+  const nightly = dq.map((n) => {
+    const worst = {};
+    n.results.forEach((r) => {
+      if (!isGold.has(r.table)) return;
+      const cur = worst[r.table] || "pass";
+      const rank = { pass: 0, not_run: 1, warn: 2, fail: 3 };
+      if (rank[r.outcome] > rank[cur]) worst[r.table] = r.outcome;
+      else if (!worst[r.table]) worst[r.table] = cur;
+    });
+    const testsHit = {};
+    n.results.forEach((r) => {
+      if (!isGold.has(r.table) || (r.outcome !== "warn" && r.outcome !== "fail")) return;
+      const k = r.test + (r.column === "*" ? "" : " on " + r.column);
+      (testsHit[r.table] = testsHit[r.table] || new Set()).add(k);
+    });
+    Object.entries(worst).forEach(([id, o]) => {
+      const s = stats[id];
+      if (o === "warn") s.warnN++;
+      if (o === "fail") s.failN++;
+      if (o === "warn" || o === "fail") s.issueN++;
+      if (o === "not_run") s.notRunN++;
+    });
+    Object.entries(testsHit).forEach(([id, set]) => set.forEach((k) => stats[id].tests.set(k, (stats[id].tests.get(k) || 0) + 1)));
+    return worst;
+  });
+  const runs = WH.runs();
+  const minutes = {};
+  gold.forEach((t) => {
+    const m = runs.map((r) => r.tasks.find((k) => k.table === t.id)).filter((k) => k.end != null).map((k) => k.minutes);
+    minutes[t.id] = d3.median(m);
+  });
+  const eventsOf = (id) => WH.schemaEvents.filter((e) => e.table === id && e.day >= yearFrom && e.day <= yearTo);
+  const topTests = (id, n) => [...stats[id].tests.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+
+  /* ---------------- computed prose ---------------- */
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set("co", WH.company); set("n-facts", facts.length); set("n-dims", dims.length);
+  document.getElementById("source").textContent = "Data: " + WH.source + " Gold-layer tables, joins, row counts, test results and schema events all come from that one model; nothing on this page is generated separately.";
+  (function () {
+    const cf = factsOf.dim_customer;
+    const custNights = dq.filter((n) => n.results.some((r) => cf.includes(r.table) && r.test === "relationships" && r.column === "customer_key" && (r.outcome === "warn" || r.outcome === "fail")));
+    const orph = WH.incidents.find((i) => i.id === "orphans");
+    const inWin = custNights.filter((n) => n.day >= orph.fromDay && n.day <= orph.toDay).length;
+    const p = document.getElementById("obs-cust");
+    p.innerHTML = "Start with the star most constellations meet at, after the calendar. <code>dim_customer</code> joins <span class='k'>" + cf.length + "</span> of " + facts.length +
+      " facts. Its own tests warned or failed on <span class='k'>" + stats.dim_customer.issueN + "</span> nights this year. The facts around it warned on <code>customer_key</code> on <span class='k'>" + custNights.length +
+      "</span> nights, <span class='k'>" + inWin + "</span> of them between March and May, when CRM accounts with no ERP customer leaked into Silver. The defect lives in the shared star; the star's own tests cannot see it; every constellation that touches it glows. That is conformance working exactly as designed, in both directions.";
+    const gl = stats.fct_gl;
+    const glFail = dq.filter((n, i) => nightly[i].fct_gl === "fail");
+    const me = glFail.filter((n) => n.day.getUTCDate() <= 3).length;
+    const failRank = gold.slice().sort((a, b) => stats[b.id].failN - stats[a.id].failN);
+    const lead = failRank[0].id === "fct_gl" ? "No Gold table failed a test on more nights than <code>fct_gl</code>, and most of that is noise."
+      : "<code>fct_gl</code> carries one of the brightest halos in the sky, and most of it is noise.";
+    document.getElementById("obs-gl").innerHTML = lead + " It failed on <span class='k'>" + gl.failN +
+      "</span> nights; <span class='k'>" + me + "</span> fall in the first three days of a month, when the ledger closes and volume runs five times normal. The volume test compares against the same weekday in prior weeks, not the same day of the close. A halo encodes alerts, not problems. Sometimes the bright star is a badly written test.";
+  })();
+
+  /* ---------------- shared scales ---------------- */
+  const lr = (n) => Math.log10(Math.max(1, n));
+  const rad = (n) => 0.9 + 0.95 * Math.max(0, lr(n) - 0.7);           // 6 rows ~1px, 44M rows ~7.4px
+  const bright = d3.scaleLinear().domain([0.7, 8]).range([0.55, 1]).clamp(true);
+  const haloR = (t) => rad(t.size) + 2 + 2.8 * Math.sqrt(stats[t.id].issueN);
+
+  /* ---------------- state ---------------- */
+  let sel = "dim_customer";   // start on the point of the page
+  let hov = null;             // { id } or { edge:[f,d] }
+  let night = null;           // null = whole year
+  let hideDate = false, showDust = true;
+
+  function focusOf() {
+    const src = hov && !hov.cross ? hov : sel ? { id: sel } : null;
+    if (!src) return null;
+    if (src.edge) return { nodes: new Set(src.edge), edges: new Set([src.edge.join("|")]), primary: null };
+    const id = src.id;
+    if (WH.byId[id].kind === "dim") return { nodes: new Set([id, ...factsOf[id]]), edges: new Set(factsOf[id].map((f) => f + "|" + id)), primary: id };
+    return { nodes: new Set([id, ...dimsOf[id]]), edges: new Set(dimsOf[id].map((d) => id + "|" + d)), primary: id };
+  }
+
+  /* ---------------- tooltip ---------------- */
+  function tipFor(id) {
+    const t = WH.byId[id];
+    let h = "<div><b>" + id + "</b>" + (LORE[id] ? " <span class='tt-k'>" + subOf(id) + "</span>" : "") + "</div>";
+    h += "<div><span class='tt-k'>" + (t.layer === "gold" ? (t.kind === "fact" ? "Fact" : "Dimension") : t.layer[0].toUpperCase() + t.layer.slice(1)) + "</span> · " + WH.fmtRows(t.size) + " rows · " + t.columns.length + " columns</div>";
+    if (t.kind === "fact") h += "<div><span class='tt-k'>Joins</span> " + dimsOf[id].join(", ") + "</div>";
+    else if (t.kind === "dim") h += "<div><span class='tt-k'>Conformed across</span> " + factsOf[id].length + " fact" + (factsOf[id].length === 1 ? "" : "s") + "</div>";
+    else h += "<div><span class='tt-k'>Feeds</span> " + t.downstream.join(", ") + "</div>";
+    if (isGold.has(id)) {
+      const s = stats[id];
+      h += "<div><span class='tt-k'>DQ this year</span> " + s.issueN + " nights (" + s.warnN + " warn, " + s.failN + " fail)" + (s.notRunN ? ", " + s.notRunN + " not refreshed" : "") + "</div>";
+      const tt = topTests(id, 1)[0];
+      if (tt) h += "<div><span class='tt-k'>Most often</span> " + tt[0] + " (" + tt[1] + ")</div>";
+      if (night != null) {
+        const o = nightly[night][id] || "pass";
+        h += "<div><span class='tt-k'>" + WH.runs()[night].date + "</span> " + (o === "not_run" ? "not refreshed" : o) + "</div>";
+      }
+      const ev = eventsOf(id).length;
+      if (ev) h += "<div><span class='tt-k'>Schema changes</span> " + ev + "</div>";
+    }
+    return h;
+  }
+
+  /* ---------------- the sky layout ----------------
+     Deterministic: seeded start positions and d3-force's own seeded jiggle.
+     Gold first, with box-shaped collision that includes each label; then the Bronze and
+     Silver field stars settle around the fixed Gold stars they feed. */
+  const P = { wide: { link: 0.2, fCharge: -2200, dCharge: -1400, fx: 0.01, fy: 0.06, ring: 0.44 },
+              compact: { link: 0.5, fCharge: -350, dCharge: -350, fx: 0.1, fy: 0.02, ring: 0.42 } };
+  function skyLayout(W, H, compact) {
+    const rand = Lab.rng(2718), p = compact ? P.compact : P.wide;
+    const M = compact ? 16 : 22;
+    const nodes = gold.map((t) => {
+      const isF = t.kind === "fact";
+      const nameW = t.id.length * (isF ? 7.25 : 6.65);
+      const subW = isF && !compact ? subOf(t.id).length * 5.6 : 0;
+      const r = rad(t.size);
+      return { id: t.id, t, isF, r, w: Math.max(nameW, subW, 2 * haloR(t)) + 10, below: (isF ? (compact ? 16 : 30) : 15), top: Math.max(r + 4, haloR(t) - 4) };
+    });
+    const by = Object.fromEntries(nodes.map((n) => [n.id, n]));
+    const fn = nodes.filter((n) => n.isF);
+    fn.forEach((n, i) => {
+      const a = (2 * Math.PI * i) / fn.length - Math.PI / 2 + 0.25;
+      n.x = W / 2 + Math.cos(a) * W * p.ring; n.y = H / 2 + Math.sin(a) * H * p.ring;
+    });
+    nodes.filter((n) => !n.isF).forEach((n) => {
+      const fs = factsOf[n.id].map((f) => by[f]);
+      n.x = d3.mean(fs, (f) => f.x) + (rand() - 0.5) * 40;
+      n.y = d3.mean(fs, (f) => f.y) + (rand() - 0.5) * 40;
+    });
+    const links = [];
+    facts.forEach((f) => dimsOf[f.id].forEach((d) => links.push({ source: f.id, target: d })));
+    const box = (n) => ({ x0: n.x - n.w / 2, x1: n.x + n.w / 2, y0: n.y - n.top, y1: n.y + n.r + 4 + n.below });
+    function boxForce(list, fixed) {
+      let ns;
+      function f(alpha) {
+        for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++) {
+          const a = ns[i], b = ns[j];
+          if (fixed && a.fx != null && b.fx != null) continue;
+          const A = box(a), B = box(b);
+          const ox = Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0) + 6;
+          const oy = Math.min(A.y1, B.y1) - Math.max(A.y0, B.y0) + 6;
+          if (ox <= 0 || oy <= 0) continue;
+          const k = 0.5 * Math.max(alpha, 0.2);
+          const wa = a.fx != null ? 0 : b.fx != null ? 1 : 0.5, wb = 1 - wa;
+          if (ox < oy * 1.4) {
+            const s = (a.x < b.x ? -1 : 1) * ox * k;
+            a.x += s * wa * 2; b.x -= s * wb * 2;
+          } else {
+            const s = ((A.y0 + A.y1) < (B.y0 + B.y1) ? -1 : 1) * oy * k;
+            a.y += s * wa * 2; b.y -= s * wb * 2;
+          }
+        }
+      }
+      f.initialize = (n) => { ns = list || n; };
+      return f;
+    }
+    function clamp(n) {
+      n.x = Math.max(M + n.w / 2, Math.min(W - M - n.w / 2, n.x));
+      n.y = Math.max(M + n.top, Math.min(H - M - n.r - 4 - n.below, n.y));
+    }
+    const span = Math.min(W, H * 1.6);
+    const sim = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(links).id((d) => d.id).distance((l) => p.link * span + (l.target.id === "dim_date" ? 30 : 0)))
+      .force("charge", d3.forceManyBody().strength((d) => (d.isF ? p.fCharge : p.dCharge)))
+      .force("x", d3.forceX(W / 2).strength(p.fx))
+      .force("y", d3.forceY(H / 2).strength(p.fy))
+      .force("box", boxForce())
+      .stop();
+    for (let i = 0; i < 420; i++) { sim.tick(); nodes.forEach(clamp); }
+    // final cleanup passes with the box force alone
+    const bf = boxForce(); bf.initialize(nodes);
+    for (let i = 0; i < 200; i++) { bf(1); nodes.forEach(clamp); }
+
+    // field stars
+    nodes.forEach((n) => { n.fx = n.x; n.fy = n.y; });
+    const dust = upstream.map((t) => ({ id: t.id, t, r: rad(t.size), dust: true }));
+    const dby = Object.fromEntries(dust.map((n) => [n.id, n]));
+    const pos = (id) => by[id] || dby[id];
+    ["silver", "bronze"].forEach((layer) => dust.filter((n) => n.t.layer === layer).forEach((n) => {
+      const ds = n.t.downstream.map(pos).filter((p) => p && p.x != null);
+      n.x = d3.mean(ds, (p) => p.x) + (rand() - 0.5) * 50;
+      n.y = d3.mean(ds, (p) => p.y) + (rand() - 0.5) * 50;
+    }));
+    const dl = [];
+    dust.forEach((n) => n.t.downstream.forEach((d) => dl.push({ source: n.id, target: d })));
+    const all = nodes.concat(dust);
+    const gBoxes = nodes.map(box);
+    function avoidGold() {
+      // push a field star out of any Gold star's label box, by the shortest exit that stays on the panel
+      dust.forEach((n) => gBoxes.forEach((B) => {
+        const x0 = B.x0 - n.r - 3, x1 = B.x1 + n.r + 3, y0 = B.y0 - n.r - 3, y1 = B.y1 + n.r + 3;
+        if (!(n.x > x0 && n.x < x1 && n.y > y0 && n.y < y1)) return;
+        const inAny = (x, y) => gBoxes.some((C) => x > C.x0 - n.r - 2 && x < C.x1 + n.r + 2 && y > C.y0 - n.r - 2 && y < C.y1 + n.r + 2);
+        const exits = [[x0, n.y, n.x - x0], [x1, n.y, x1 - n.x], [n.x, y0, n.y - y0], [n.x, y1, y1 - n.y]]
+          .filter(([x, y]) => x >= 4 && x <= W - 4 && y >= 4 && y <= H - 4)
+          .map((e) => [e[0], e[1], e[2] + (inAny(e[0], e[1]) ? 1e4 : 0)]).sort((a, b) => a[2] - b[2]);
+        if (exits.length) { n.x = exits[0][0]; n.y = exits[0][1]; }
+      }));
+    }
+    const sim2 = d3.forceSimulation(all)
+      .force("link", d3.forceLink(dl).id((d) => d.id).distance(compact ? 16 : 26).strength(0.5))
+      .force("charge", d3.forceManyBody().strength((d) => (d.dust ? -14 : -40)).distanceMax(120))
+      .force("collide", d3.forceCollide((d) => (d.dust ? d.r + 3 : 0)))
+      .stop();
+    for (let i = 0; i < 260; i++) {
+      sim2.tick();
+      dust.forEach((n) => { n.x = Math.max(6, Math.min(W - 6, n.x)); n.y = Math.max(6, Math.min(H - 6, n.y)); });
+      avoidGold();
+      dust.forEach((n) => { n.x = Math.max(6, Math.min(W - 6, n.x)); n.y = Math.max(6, Math.min(H - 6, n.y)); });
+    }
+    for (let i = 0; i < 8; i++) avoidGold();
+    return { nodes, by, dust };
+  }
+
+  /* ---------------- sky rendering ---------------- */
+  const skyHost = document.getElementById("sky");
+  const skyFig = document.getElementById("sky-fig");
+  const svg = d3.select(skyHost).append("svg").attr("role", "img")
+    .attr("aria-label", "Night-sky drawing of the Gold layer: facts as constellations joined to shared dimension stars");
+  const defs = svg.append("defs");
+  const grad = defs.append("radialGradient").attr("id", "halo-grad");
+  grad.append("stop").attr("offset", "0%").style("stop-color", "var(--sky-star)").style("stop-opacity", 0.30);
+  grad.append("stop").attr("offset", "45%").style("stop-color", "var(--sky-star)").style("stop-opacity", 0.12);
+  grad.append("stop").attr("offset", "100%").style("stop-color", "var(--sky-star)").style("stop-opacity", 0);
+  const bg = svg.append("rect").style("fill", "transparent");
+  const gDust = svg.append("g"), gLines = svg.append("g"), gHalo = svg.append("g"), gFlare = svg.append("g"),
+        gStar = svg.append("g"), gLabel = svg.append("g"), gHit = svg.append("g");
+  let L = null, compact = false;
+
+  function renderSky() {
+    const W = Math.max(280, Math.floor(Lab.width(skyFig)));
+    compact = W < 640;
+    const H = compact ? Math.round(Math.min(720, Math.max(600, W * 1.9))) : Math.round(Math.min(660, Math.max(480, W * 0.58)));
+    L = skyLayout(W, H, compact);
+    svg.attr("width", W).attr("height", H).attr("viewBox", `0 0 ${W} ${H}`);
+    bg.attr("width", W).attr("height", H);
+
+    gDust.selectAll("circle").data(L.dust, (d) => d.id).join("circle").attr("class", "dust")
+      .attr("cx", (d) => d.x).attr("cy", (d) => d.y).attr("r", (d) => d.r)
+      .style("fill", "var(--sky-dust)").style("fill-opacity", (d) => 0.18 + 0.3 * (bright(lr(d.t.size)) - 0.55) / 0.45)
+      .on("pointerenter", (ev, d) => Lab.tooltip.show(ev, tipFor(d.id)))
+      .on("pointermove", (ev, d) => Lab.tooltip.show(ev, tipFor(d.id)))
+      .on("pointerleave", () => Lab.tooltip.hide());
+
+    const edges = [];
+    facts.forEach((f) => dimsOf[f.id].forEach((d) => edges.push({ f: f.id, d, key: f.id + "|" + d, a: L.by[f.id], b: L.by[d] })));
+    gLines.selectAll("line").data(edges, (e) => e.key).join("line").attr("class", "cline")
+      .attr("x1", (e) => e.a.x).attr("y1", (e) => e.a.y).attr("x2", (e) => e.b.x).attr("y2", (e) => e.b.y)
+      .style("fill", "none");
+
+    gHalo.selectAll("circle").data(L.nodes, (d) => d.id).join("circle").attr("class", "halo")
+      .attr("cx", (d) => d.x).attr("cy", (d) => d.y).attr("r", (d) => haloR(d.t))
+      .style("fill", "url(#halo-grad)");
+    gFlare.selectAll("circle").data(L.nodes, (d) => d.id).join("circle").attr("class", "flare")
+      .attr("cx", (d) => d.x).attr("cy", (d) => d.y).attr("r", (d) => d.r + 5)
+      .style("fill", "none").style("stroke-width", 1.6).style("opacity", 0);
+    gStar.selectAll("circle").data(L.nodes, (d) => d.id).join("circle").attr("class", "star")
+      .attr("cx", (d) => d.x).attr("cy", (d) => d.y).attr("r", (d) => d.r)
+      .style("fill", "var(--sky-star)");
+
+    const lab = gLabel.selectAll("g").data(L.nodes, (d) => d.id).join((e) => {
+      const g = e.append("g").attr("class", "star-label");
+      g.append("text").attr("class", "l1").attr("text-anchor", "middle");
+      g.append("text").attr("class", "l2 star-sub").attr("text-anchor", "middle");
+      return g;
+    });
+    lab.attr("transform", (d) => `translate(${d.x.toFixed(1)},${(d.y + d.r + 4).toFixed(1)})`);
+    lab.select(".l1").attr("class", (d) => "l1 " + (d.isF ? "star-name" : "dim-name")).attr("dy", 11).text((d) => d.id);
+    lab.select(".l2").attr("dy", 25).text((d) => (d.isF && !compact ? subOf(d.id) : ""));
+
+    gHit.selectAll("circle").data(L.nodes, (d) => d.id).join((e) => e.append("circle").attr("class", "hit").attr("tabindex", 0).attr("role", "button"))
+      .attr("cx", (d) => d.x).attr("cy", (d) => d.y).attr("r", (d) => Math.max(13, d.r + 8))
+      .attr("aria-label", (d) => d.id + ", " + (d.isF ? "fact" : "dimension") + ", " + WH.fmtRows(d.t.size) + " rows")
+      .on("pointerenter", (ev, d) => { hov = { id: d.id }; paint(); Lab.tooltip.show(ev, tipFor(d.id)); })
+      .on("pointermove", (ev, d) => Lab.tooltip.show(ev, tipFor(d.id)))
+      .on("pointerleave", () => { hov = null; paint(); Lab.tooltip.hide(); })
+      .on("focus", (ev, d) => { hov = { id: d.id }; paint(); })
+      .on("blur", () => { hov = null; paint(); })
+      .on("click", (ev, d) => { ev.stopPropagation(); select(d.id); })
+      .on("keydown", (ev, d) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(d.id); } });
+    bg.on("click", () => select(null));
+    paint();
+  }
+
+  function paint() {
+    const F = focusOf();
+    const dateOff = (id) => hideDate && id === "dim_date";
+    gLines.selectAll("line")
+      .style("stroke", (e) => (F && F.edges.has(e.key) ? "var(--accent)" : "var(--sky-line)"))
+      .style("stroke-width", (e) => (F && F.edges.has(e.key) ? 1.4 : 0.8))
+      .style("opacity", (e) => (dateOff(e.d) ? 0 : F ? (F.edges.has(e.key) ? 0.95 : 0.1) : 0.38));
+    const nodeOp = (d) => (dateOff(d.id) ? 0.12 : F && !F.nodes.has(d.id) ? 0.28 : 1);
+    gStar.selectAll("circle")
+      .style("opacity", (d) => nodeOp(d) * (night != null && nightly[night][d.id] === "not_run" ? 0.2 : 1) * bright(lr(d.t.size)))
+      .style("stroke", (d) => (F && F.primary === d.id ? "var(--accent)" : "none"))
+      .style("stroke-width", 2.5);
+    gHalo.selectAll("circle").style("opacity", (d) => nodeOp(d) * (night != null ? 0.7 : 1));
+    gLabel.selectAll("g").style("opacity", (d) => (dateOff(d.id) ? 0.25 : F && !F.nodes.has(d.id) ? 0.35 : 1));
+    gFlare.selectAll("circle")
+      .style("stroke", (d) => { const o = night != null && nightly[night][d.id]; return o === "fail" ? "var(--critical)" : o === "warn" ? "var(--warning)" : "none"; })
+      .style("opacity", (d) => { const o = night != null && nightly[night][d.id]; return o === "fail" || o === "warn" ? nodeOp(d) : 0; });
+    gDust.style("display", showDust ? null : "none");
+    gDust.selectAll("circle").style("opacity", (d) => (F ? (d.t.downstream.some((x) => F.nodes.has(x)) ? 1 : 0.35) : 1));
+    paintMatrix(F);
+  }
+
+  /* ---------------- legend ---------------- */
+  (function legend() {
+    const lg = d3.select("#sky-legend");
+    const mag = lg.append("span");
+    mag.append("span").text("Magnitude, rows");
+    [10, 1e3, 1e5, 1e7].forEach((n) => {
+      const s = mag.append("span");
+      const r = rad(n);
+      s.append("svg").attr("width", 18).attr("height", 18).append("circle").attr("cx", 9).attr("cy", 9).attr("r", r)
+        .style("fill", "var(--sky-star)").style("opacity", bright(lr(n)));
+      s.append("span").text(WH.fmtRows(n));
+    });
+    const halo = lg.append("span");
+    halo.append("span").text("Halo, nights with a warn or fail");
+    [5, 40].forEach((n) => {
+      const s = halo.append("span"), R = 3 + 2 + 2.8 * Math.sqrt(n);
+      const sv = s.append("svg").attr("width", 2 * R + 2).attr("height", 2 * R + 2);
+      sv.append("circle").attr("cx", R + 1).attr("cy", R + 1).attr("r", R).style("fill", "url(#halo-grad)");
+      sv.append("circle").attr("cx", R + 1).attr("cy", R + 1).attr("r", 3).style("fill", "var(--sky-star)");
+      s.append("span").text(n);
+    });
+    const fl = lg.append("span").attr("id", "flare-legend");
+    fl.append("span").text("On a single night:");
+    [["var(--warning)", "warn"], ["var(--critical)", "fail"]].forEach(([c, t]) => {
+      const s = fl.append("span");
+      const sv = s.append("svg").attr("width", 18).attr("height", 18);
+      sv.append("circle").attr("cx", 9).attr("cy", 9).attr("r", 7).style("fill", "none").style("stroke", c).style("stroke-width", 1.6);
+      sv.append("circle").attr("cx", 9).attr("cy", 9).attr("r", 3).style("fill", "var(--sky-star)");
+      s.append("span").text(t);
+    });
+    const nr = fl.append("span");
+    nr.append("svg").attr("width", 18).attr("height", 18).append("circle").attr("cx", 9).attr("cy", 9).attr("r", 3)
+      .style("fill", "var(--sky-star)").style("opacity", 0.2);
+    nr.append("span").text("dim: not refreshed");
+  })();
+
+  /* ---------------- replay ---------------- */
+  const fmtNight = d3.utcFormat("%a %-d %b %Y");
+  const playBtn = document.getElementById("play"), slider = document.getElementById("night"), nightOut = document.getElementById("night-v");
+  const readout = document.getElementById("readout");
+  function setNight(n) {
+    night = n;
+    if (n == null) {
+      slider.value = 364; nightOut.textContent = "All year";
+      readout.innerHTML = "All <b>" + runs.length + "</b> nights, " + WH.first + " to " + WH.last + ". Halos sum the year; press play to watch it night by night.";
+    } else {
+      slider.value = n;
+      const run = runs[n], w = nightly[n];
+      nightOut.textContent = fmtNight(run.day);
+      const c = { warn: 0, fail: 0, not_run: 0 };
+      gold.forEach((t) => { const o = w[t.id]; if (c[o] != null) c[o]++; });
+      const inc = run.incidents.map((i) => i.title).join(", ");
+      readout.innerHTML = "Load of <b>" + fmtNight(run.day) + "</b>" + (inc ? " · <span class='inc'>" + inc + "</span>" : "") +
+        " · Gold tables: <b>" + c.fail + "</b> failed a test, <b>" + c.warn + "</b> warned, <b>" + c.not_run + "</b> not refreshed";
+    }
+    paint();
+  }
+  const NPS = 5;   // nights per second
+  let playing = false, raf = 0, last = 0, acc = 0, visible = true;
+  function setPlay(p) {
+    playing = p;
+    playBtn.textContent = p ? "Pause" : (night == null ? "Play the year" : "Play");
+    if (p && !raf) { last = 0; raf = requestAnimationFrame(frame); }
+  }
+  function frame(ts) {
+    raf = 0;
+    if (!playing) return;
+    if (visible && !document.hidden) {
+      if (!last) last = ts;
+      acc += ((ts - last) / 1000) * NPS; last = ts;
+      if (acc >= 1) { const k = Math.floor(acc); acc -= k; setNight(((night == null ? -1 : night) + k) % runs.length); }
+    } else last = ts;
+    raf = requestAnimationFrame(frame);
+  }
+  playBtn.addEventListener("click", () => setPlay(!playing));
+  slider.addEventListener("input", () => { setPlay(false); setNight(+slider.value); playBtn.textContent = "Play"; });
+  document.getElementById("allyear").addEventListener("click", () => { setPlay(false); setNight(null); playBtn.textContent = "Play the year"; });
+  if ("IntersectionObserver" in window) new IntersectionObserver((es) => { visible = es[0].isIntersecting; }).observe(skyHost);
+  function toggle(id, fn) {
+    const b = document.getElementById(id);
+    b.addEventListener("click", () => { const on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", String(on)); fn(on); });
+  }
+  toggle("hide-date", (on) => { hideDate = on; paint(); });
+  toggle("dust", (on) => { showDust = on; paint(); });
+
+  /* ---------------- bus matrix ---------------- */
+  const mxHost = document.getElementById("matrix");
+  const msvg = d3.select(mxHost).append("svg").attr("role", "img").attr("aria-label", "Bus matrix: facts as rows, dimensions as columns, a dot where a fact uses a dimension");
+  const gBand = msvg.append("g"), gGrid = msvg.append("g"), gDots = msvg.append("g"), gRows = msvg.append("g"), gCols = msvg.append("g"), gTot = msvg.append("g"), gMhit = msvg.append("g");
+  let MX = null;
+  function renderMatrix() {
+    const W = Math.max(260, Math.floor(Lab.width(mxHost)));
+    const small = W < 380;
+    const cw = small ? 6.1 : 6.65;
+    const ang = small ? 60 : 45, ca = Math.cos((ang * Math.PI) / 180), sa = Math.sin((ang * Math.PI) / 180);
+    const left = d3.max(factOrder, (f) => f.length) * cw + 14;
+    const right = Math.max(30, dimOrder[dimOrder.length - 1].length * cw * ca - 4);
+    const cell = Math.max(17, Math.min(42, (W - left - right) / dimOrder.length));
+    const top = d3.max(dimOrder, (d) => d.length) * cw * sa + 18;
+    const bottom = 26;
+    const w = Math.max(W, left + cell * dimOrder.length + right), h = top + cell * factOrder.length + bottom;
+    MX = { left, top, cell };
+    msvg.attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`);
+    const x = (d) => left + dimOrder.indexOf(d) * cell, y = (f) => top + factOrder.indexOf(f) * cell;
+
+    gBand.selectAll("rect.rb").data(factOrder).join("rect").attr("class", "rb")
+      .attr("x", 0).attr("y", (f) => y(f)).attr("width", left + cell * dimOrder.length).attr("height", cell).style("fill", "var(--surface-2)");
+    gBand.selectAll("rect.cb").data(dimOrder).join("rect").attr("class", "cb")
+      .attr("x", (d) => x(d)).attr("y", 0).attr("width", cell).attr("height", top + cell * factOrder.length).style("fill", "var(--surface-2)");
+    gGrid.selectAll("line.h").data(d3.range(factOrder.length + 1)).join("line").attr("class", "h")
+      .attr("x1", left).attr("x2", left + cell * dimOrder.length).attr("y1", (i) => top + i * cell).attr("y2", (i) => top + i * cell)
+      .style("stroke", "var(--grid)").style("shape-rendering", "crispEdges");
+    gGrid.selectAll("line.v").data(d3.range(dimOrder.length + 1)).join("line").attr("class", "v")
+      .attr("y1", top).attr("y2", top + cell * factOrder.length).attr("x1", (i) => left + i * cell).attr("x2", (i) => left + i * cell)
+      .style("stroke", "var(--grid)").style("shape-rendering", "crispEdges");
+
+    const cells = [];
+    factOrder.forEach((f) => dimOrder.forEach((d) => cells.push({ f, d, on: dimsOf[f].includes(d), key: f + "|" + d })));
+    gDots.selectAll("circle").data(cells.filter((c) => c.on), (c) => c.key).join("circle")
+      .attr("cx", (c) => x(c.d) + cell / 2).attr("cy", (c) => y(c.f) + cell / 2).attr("r", Math.min(5.5, cell * 0.2));
+
+    const row = gRows.selectAll("g").data(factOrder).join((e) => {
+      const g = e.append("g").attr("class", "mx-row").attr("tabindex", 0).attr("role", "button");
+      g.append("rect").style("fill", "transparent");
+      g.append("text").attr("class", "mx-label");
+      return g;
+    });
+    row.attr("aria-label", (f) => f + ", uses " + dimsOf[f].length + " dimensions");
+    row.select("rect").attr("x", 0).attr("y", (f) => y(f)).attr("width", left - 4).attr("height", cell);
+    row.select("text").attr("x", left - 8).attr("y", (f) => y(f) + cell / 2).attr("dy", "0.35em").attr("text-anchor", "end")
+      .style("font-size", small ? "10px" : null).text((f) => f);
+
+    const col = gCols.selectAll("g").data(dimOrder).join((e) => {
+      const g = e.append("g").attr("class", "mx-col").attr("tabindex", 0).attr("role", "button");
+      g.append("rect").style("fill", "transparent");
+      g.append("text").attr("class", "mx-label");
+      return g;
+    });
+    col.attr("aria-label", (d) => d + ", used by " + factsOf[d].length + " facts");
+    col.select("rect").attr("x", (d) => x(d)).attr("y", 0).attr("width", cell).attr("height", top - 2);
+    col.select("text").attr("transform", (d) => `translate(${x(d) + cell / 2 + 3},${top - 6}) rotate(-${ang})`)
+      .style("font-size", small ? "10px" : null).text((d) => d);
+
+    gTot.selectAll("text.rt").data(factOrder).join("text").attr("class", "rt mx-total")
+      .attr("x", left + cell * dimOrder.length + 8).attr("y", (f) => y(f) + cell / 2).attr("dy", "0.35em").text((f) => dimsOf[f].length);
+    gTot.selectAll("text.ct").data(dimOrder).join("text").attr("class", "ct mx-total").attr("text-anchor", "middle")
+      .attr("x", (d) => x(d) + cell / 2).attr("y", top + cell * factOrder.length + 16).text((d) => factsOf[d].length);
+    gTot.selectAll("text.lab").data([0]).join("text").attr("class", "lab mx-total").attr("text-anchor", "end")
+      .attr("x", left - 8).attr("y", top + cell * factOrder.length + 16).text("facts using it");
+
+    gMhit.selectAll("rect").data(cells, (c) => c.key).join("rect").attr("class", "mx-cell")
+      .attr("x", (c) => x(c.d)).attr("y", (c) => y(c.f)).attr("width", cell).attr("height", cell).style("fill", "transparent")
+      .on("pointerenter", (ev, c) => { hov = c.on ? { edge: [c.f, c.d] } : { cross: [c.f, c.d] }; paint(); Lab.tooltip.show(ev, cellTip(c)); })
+      .on("pointermove", (ev, c) => Lab.tooltip.show(ev, cellTip(c)))
+      .on("pointerleave", () => { hov = null; paint(); Lab.tooltip.hide(); })
+      .on("click", (ev, c) => select(c.d));
+
+    const wire = (sel2) => sel2
+      .on("pointerenter", (ev, id) => { hov = { id }; paint(); Lab.tooltip.show(ev, tipFor(id)); })
+      .on("pointermove", (ev, id) => Lab.tooltip.show(ev, tipFor(id)))
+      .on("pointerleave", () => { hov = null; paint(); Lab.tooltip.hide(); })
+      .on("focus", (ev, id) => { hov = { id }; paint(); })
+      .on("blur", () => { hov = null; paint(); })
+      .on("click", (ev, id) => select(id))
+      .on("keydown", (ev, id) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(id); } });
+    wire(row); wire(col);
+    paint();
+  }
+  function cellTip(c) {
+    if (!c.on) return "<div><b>" + c.f + "</b> does not join <b>" + c.d + "</b></div>";
+    const j = joinOf(c.f, c.d);
+    return "<div><b>" + c.f + "</b> → <b>" + c.d + "</b></div><div><span class='tt-k'>via</span> " + j.col + "</div>" +
+      (j.from ? "<div><span class='tt-k'>from</span> " + j.from + "</div>" : "");
+  }
+  function paintMatrix(F) {
+    if (!MX) return;
+    const cross = hov && hov.cross;
+    const rowOn = (f) => (cross ? cross[0] === f : F && F.nodes.has(f));
+    const colOn = (d) => (cross ? cross[1] === d : F && F.nodes.has(d));
+    const primaryIsDim = F && F.primary && WH.byId[F.primary].kind === "dim";
+    const primaryIsFact = F && F.primary && WH.byId[F.primary].kind === "fact";
+    gBand.selectAll("rect.rb").style("opacity", (f) => (cross ? (cross[0] === f ? 1 : 0) : primaryIsFact && F.primary === f ? 1 : F && !F.primary && F.nodes.has(f) ? 1 : 0));
+    gBand.selectAll("rect.cb").style("opacity", (d) => (cross ? (cross[1] === d ? 1 : 0) : primaryIsDim && F.primary === d ? 1 : F && !F.primary && F.nodes.has(d) ? 1 : 0));
+    gDots.selectAll("circle")
+      .style("fill", (c) => (F && F.edges.has(c.key) ? "var(--accent)" : "var(--text-primary)"))
+      .style("opacity", (c) => (F && !cross ? (F.edges.has(c.key) ? 1 : 0.22) : 1));
+    gRows.selectAll("text").classed("on", rowOn);
+    gCols.selectAll("text").classed("on", colOn);
+  }
+
+  /* ---------------- table card ---------------- */
+  const card = d3.select("#card");
+  function renderCard() {
+    card.selectAll("*").remove();
+    if (!sel) {
+      card.append("p").attr("class", "figure-title").text("Table card");
+      card.append("p").attr("class", "hint").text("Click a star, or a row or column of the matrix, to see its columns, keys, joins, tests and schema changes this year.");
+      return;
+    }
+    const t = WH.byId[sel], s = stats[sel];
+    card.append("h3").text(sel);
+    card.append("p").attr("class", "meta").text(
+      (t.kind === "fact" ? "Fact · " + subOf(sel) : "Dimension · conformed across " + factsOf[sel].length + " of " + facts.length + " facts") +
+      " · " + WH.fmtRows(t.size) + " rows · " + t.columns.length + " columns · median load " + Lab.fmt.one(minutes[sel]) + " min");
+
+    card.append("h4").text(t.kind === "fact" ? "Joins" : "Used by");
+    const chips = card.append("div").attr("class", "chips");
+    (t.kind === "fact" ? dimsOf[sel] : factsOf[sel]).forEach((id) => {
+      chips.append("button").attr("type", "button").text(id).on("click", () => select(id))
+        .on("pointerenter", () => { hov = { id }; paint(); }).on("pointerleave", () => { hov = null; paint(); });
+    });
+
+    card.append("h4").text("Data quality this year");
+    card.append("p").attr("class", "dqline").html("<b>" + s.issueN + "</b> nights with a warn or fail (" + s.warnN + " warn, " + s.failN + " fail)" + (s.notRunN ? "; <b>" + s.notRunN + "</b> not refreshed" : ""));
+    topTests(sel, 3).forEach(([k, n]) => card.append("p").attr("class", "dqline").html("<b>" + n + "</b> night" + (n === 1 ? "" : "s") + " · " + k));
+
+    const evs = eventsOf(sel);
+    const evCol = new Map(evs.map((e) => [e.column, e]));
+    card.append("h4").text("Columns");
+    const ul = card.append("ul").attr("class", "cols");
+    t.columns.forEach((c, i) => {
+      const li = ul.append("li");
+      li.append("span").text(c.name);
+      if (t.kind === "dim" && i === 0) li.append("span").attr("class", "tag key").text("surrogate key");
+      else if (t.kind === "fact" && keyDim[c.name]) li.append("span").attr("class", "tag key").text("→ " + keyDim[c.name]);
+      const e = evCol.get(c.name);
+      if (e) li.append("span").attr("class", "tag").text(e.change === "rename" ? "renamed " + e.date : e.change === "type" ? "retyped " + e.date : "added " + e.date);
+    });
+
+    card.append("h4").text("Schema changes this year");
+    if (!evs.length) card.append("p").attr("class", "dqline").text("None. The schema held all year.");
+    else {
+      const tb = card.append("table").attr("class", "lab");
+      const hr = tb.append("thead").append("tr");
+      ["Date", "Change", "Column", "Note"].forEach((h) => hr.append("th").text(h));
+      const body = tb.append("tbody");
+      evs.forEach((e) => {
+        const r = body.append("tr");
+        r.append("td").attr("class", "num").text(e.date);
+        r.append("td").text(e.change);
+        r.append("td").style("font-family", "var(--mono)").text(e.oldName ? e.oldName + " → " + e.column : e.column);
+        r.append("td").attr("class", "secondary").text(e.note || "");
+      });
+    }
+  }
+
+  function select(id) {
+    sel = id && sel === id ? null : id;
+    hov = null; Lab.tooltip.hide();
+    renderCard(); paint();
+  }
+
+  /* ---------------- table twin ---------------- */
+  Lab.tableView("#gold-table", [
+    { key: "id", label: "Table" },
+    { key: "kind", label: "Kind" },
+    { key: "rows", label: "Rows", align: "r", format: (v) => WH.fmtRows(v) },
+    { key: "cols", label: "Columns", align: "r" },
+    { key: "links", label: "Joins / used by" },
+    { key: "issue", label: "DQ nights", align: "r" },
+    { key: "warn", label: "Warn", align: "r" },
+    { key: "fail", label: "Fail", align: "r" },
+    { key: "notrun", label: "Not refreshed", align: "r" },
+    { key: "ev", label: "Schema changes", align: "r" },
+  ], factOrder.concat(dimOrder).map((id) => {
+    const t = WH.byId[id], s = stats[id];
+    return { id, kind: t.kind, rows: t.size, cols: t.columns.length, links: (t.kind === "fact" ? dimsOf[id] : factsOf[id]).join(", "),
+      issue: s.issueN, warn: s.warnN, fail: s.failN, notrun: s.notRunN, ev: eventsOf(id).length };
+  }), "Show the Gold layer as a table");
+
+  /* ---------------- go ---------------- */
+  renderCard();
+  setNight(null);
+  Lab.responsive(() => { renderSky(); renderMatrix(); });
+  Lab.onTheme(paint);
+  if (!Lab.reducedMotion()) setPlay(true);
+})();
+</script>
+</body>
+</html>

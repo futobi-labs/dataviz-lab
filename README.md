@@ -3,10 +3,11 @@
 An exploratory data visualization notebook, published at
 **https://tannerspaulding.github.io/dataviz-lab/**.
 
-Four rooms:
+A main room and four studies:
 
 | Section | Folder | What lives there |
 |---|---|---|
+| The engineer's eye | `engineer/` | Load logs, lineage, star schemas, data-quality tests and schema drift from one synthetic medallion warehouse and a simulated year of nightly loads. |
 | Experimental | `experimental/` | Generative, physical, odd D3. Data art that still encodes data. |
 | Stephen Few | `few/` | Bullet graphs, one-screen dashboards, table-or-graph decisions. |
 | Edward Tufte | `tufte/` | Sparklines, slopegraphs, range-frames, small multiples. |

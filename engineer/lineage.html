@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lineage as a transit map · Data Viz Lab</title>
+<meta name="description" content="Warehouse lineage drawn the way Harry Beck drew the London Underground: source systems as lines, tables as stations, conformed tables as interchanges, plus a column-level strip map.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="warehouse.js"></script>
+<style>
+  .try { color: var(--text-secondary); font-size: 0.95rem; margin: 0.8rem 0 0; max-width: 72ch; }
+  .try b { color: var(--text-primary); font-weight: 600; }
+  .try code { font-size: 0.86em; }
+
+  .line-key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 6px; }
+  .line-key span { display: inline-flex; align-items: center; gap: 7px; }
+  .line-key svg { flex: none; }
+  .line-key .sym { color: var(--text-muted); }
+
+  .map-wrap { position: relative; }
+  .map-wrap svg { display: block; width: 100%; height: auto; }
+  .map-wrap svg.zoomable { cursor: grab; touch-action: pan-x pan-y; }
+  .map-wrap svg.zoomable:active { cursor: grabbing; }
+
+  .trk { fill: none; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; transition: opacity 120ms; }
+  .trk-hit { fill: none; stroke: transparent; stroke-width: 11; pointer-events: stroke; }
+  .tick { stroke-width: 3.2; stroke-linecap: butt; }
+  .ring { fill: var(--surface-1); stroke: var(--text-primary); stroke-width: 1.6; }
+  .stn-label { font: 10.5px var(--mono); fill: var(--text-primary); }
+  .stn-note { font: italic 10px var(--sans); fill: var(--text-muted); }
+  .zone-label { font: 600 10px var(--sans); letter-spacing: 0.09em; text-transform: uppercase; fill: var(--text-muted); }
+  .zone-sub { font: 10px var(--sans); fill: var(--text-muted); }
+  .stn { transition: opacity 120ms; }
+  .stn-hit { fill: transparent; cursor: pointer; }
+  .stn-hit:focus { outline: none; }
+  .stn:focus-within .stn-label, .stn.sel .stn-label { font-weight: 700; }
+  .stn-hit:focus-visible { stroke: var(--accent); stroke-width: 1.5; }
+  .has-sel .trk:not(.on) { opacity: 0.1; }
+  .has-sel .stn:not(.on) { opacity: 0.22; }
+  .has-sel .stn.sel .ring { stroke-width: 2.6; }
+
+  .readout { margin: 10px 0 0; font-size: 0.92rem; color: var(--text-secondary); min-height: 1.5em; font-variant-numeric: tabular-nums; }
+  .readout b { color: var(--text-primary); }
+  .readout code { font-size: 0.86em; }
+  .zoom-ctl[hidden] { display: none; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .presets button { font: 0.82rem var(--mono); }
+  #col-pick { max-width: 100%; font-family: var(--mono); font-size: 0.85rem; }
+  .strip-label { font: 11px var(--mono); fill: var(--text-primary); }
+  .strip-tbl { font: 9.5px var(--mono); fill: var(--text-muted); }
+  .strip-root { font-weight: 700; }
+  .stop { fill: var(--surface-1); stroke: var(--text-primary); stroke-width: 1.5; }
+  .stop.root { stroke-width: 2.4; }
+  .stop-hit { fill: transparent; }
+  .strip-wrap svg { display: block; max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/" aria-current="true">Engineer's eye</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">The engineer's eye</p>
+  <h1>Lineage as a transit map</h1>
+  <p class="lede">Lineage tools draw hairballs: boxes, arrows, and a force layout that puts two tables near each other for reasons nobody can state. Harry Beck had the same problem with the Underground and solved it by throwing geography away. Lineage never had any geography to throw away. So here is one warehouse drawn his way: <span id="n-src"></span> source systems as lines, <span id="n-tbl"></span> tables as stations, conformed tables as interchanges.</p>
+  <p class="try">Click <b>fct_sales</b>: it sits at the end of <b id="k-sales-lines"></b> lines with <b id="k-sales-up"></b> tables upstream. Then click <b id="k-dead"></b> in Zone 1: <span id="k-dead-note"></span></p>
+
+  <div class="figure">
+    <p class="figure-title">The table map</p>
+    <p class="figure-sub">Each line is a source system and runs through every table its data reaches. A tick is a station on one line; a white capsule is an interchange where lines meet. Hover for details; click a station to light its upstream and downstream; click empty space to clear.</p>
+    <div class="line-key" id="line-key"></div>
+    <div class="controls zoom-ctl" id="zoom-ctl" hidden>
+      <span>Pinch with two fingers, or</span>
+      <button type="button" id="z-in" aria-label="Zoom in">Zoom in</button>
+      <button type="button" id="z-out" aria-label="Zoom out">Zoom out</button>
+      <button type="button" id="z-fit">Fit</button>
+    </div>
+    <div class="map-wrap" id="map"></div>
+    <p class="readout" id="map-readout" aria-live="polite"></p>
+    <div id="map-table"></div>
+  </div>
+
+  <h2>One column, end to end</h2>
+  <p>Table lineage overstates. A station on the CRM line only means some table upstream came from CRM, not that any of its columns did. At table level <b id="k-crm-tbl"></b> of the facts sit on the CRM line. Trace their columns and <b id="k-crm-col"></b>. The other CRM attributes stop at <code>dim_customer</code> or earlier and reach a report only through the join. The strip map below follows a single column the same way a carriage strip map follows one route.</p>
+
+  <div class="figure">
+    <p class="figure-title">Column strip map</p>
+    <p class="figure-sub">Pick a Gold column to trace it back to the Bronze columns it came from, or a Bronze column to trace it forward. Tracks wear the color of the source the data originated in; a capsule is a column built from more than one source.</p>
+    <div class="controls">
+      <label for="col-pick">Column</label>
+      <select id="col-pick"></select>
+    </div>
+    <div class="controls presets" id="presets" role="group" aria-label="Interesting columns"></div>
+    <div class="strip-wrap" id="strip"></div>
+    <p class="readout" id="strip-readout" aria-live="polite"></p>
+    <div id="strip-table"></div>
+  </div>
+
+  <p class="try" id="k-unused"></p>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li><strong>Beck, 1933.</strong> An engineering draughtsman redrew the Underground as a diagram: straight lines, 45 and 90 degree turns only, stations evenly spaced, the crowded centre given more room than the suburbs. Riders need to know what connects to what and where to change, not how far apart things are. A lineage graph is the same question with no distances at all, so topology is the only honest thing to draw. Force layouts invent a geography and then let you read meaning into it.</li>
+      <li><strong>What the form reveals.</strong> Which sources reach which Gold tables, where they converge, which stations carry the most traffic, and the dead ends: a Bronze terminus with no onward service is a table you pay to land every night and nobody reads.</li>
+      <li><strong>What it hides.</strong> Transformations, volumes and timing (the heartbeat page has those). Where tracks of one color merge on the approach to a station, the drawing says the line arrives; it does not say through which branch. That is a junction, not a claim. Click the station and you get the exact set.</li>
+      <li><strong>Pushback: the stations were placed by hand.</strong> The 42 stations sit on a grid chosen by eye, as Beck's did; only the tracks are routed by code. Hand placement stops scaling somewhere past a hundred tables, and that is the real limit of the form. Past it, stop drawing the network and draw the trace: one column, one route, as in the strip map.</li>
+      <li><strong>Pushback: the colors flatter table lineage.</strong> Five facts wear CRM orange and only one carries a CRM column. A table-level map is the right overview and the wrong audit. Use it to find where to look, then trace columns before you tell anyone a dashboard depends on a source.</li>
+    </ul>
+  </div>
+  <p class="source" id="src"></p>
+  <p><a href="./">← The engineer's eye</a></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const T = WH.tables, byId = WH.byId;
+  const SRC = Object.fromEntries(WH.sources.map((s) => [s.id, s]));
+  const srcIdx = (s) => (s === "date" ? 99 : WH.sourceIndex[s]);
+  const srcColor = (s) => (s === "date" ? "var(--text-muted)" : WH.sourceColor(s));
+  const srcName = (s) => (s === "date" ? "Date shuttle" : SRC[s].name);
+  const bySrc = (a, b) => srcIdx(a) - srcIdx(b);
+  const LAYER = { bronze: "Bronze", silver: "Silver", gold: "Gold" };
+  const KIND = { bronze: "landing", silver: "conformed", dim: "dimension", fact: "fact" };
+  const CW = 6.3; // monospace glyph width at 10.5px, used for label extents
+
+  document.getElementById("src").textContent = "Source: " + WH.source;
+  document.getElementById("n-src").textContent = WH.sources.length === 6 ? "six" : WH.sources.length;
+  document.getElementById("n-tbl").textContent = T.length;
+
+  /* ---------- table graph helpers ---------- */
+  function closure(id, dir) {
+    const out = new Set(), q = [id];
+    while (q.length) {
+      const c = q.pop();
+      (dir === "up" ? byId[c].deps : byId[c].downstream).forEach((d) => { if (!out.has(d)) { out.add(d); q.push(d); } });
+    }
+    return out;
+  }
+  const UP = Object.fromEntries(T.map((t) => [t.id, closure(t.id, "up")]));
+  const DOWN = Object.fromEntries(T.map((t) => [t.id, closure(t.id, "down")]));
+  const linesOf = (t) => t.sources.slice().sort(bySrc).concat(t.id === "dim_date" || t.deps.includes("dim_date") ? ["date"] : []);
+
+  /* ---------- column graph helpers ---------- */
+  const colLayer = (cid) => { const t = byId[cid.split(".")[0]]; return t.layer === "bronze" ? 0 : t.layer === "silver" ? 1 : t.kind === "dim" ? 2 : 3; };
+  const originMemo = new Map();
+  function colOrigins(cid) {
+    if (originMemo.has(cid)) return originMemo.get(cid);
+    const s = new Set();
+    [cid, ...WH.upstreamColumns(cid).keys()].forEach((k) => {
+      const t = byId[k.split(".")[0]];
+      if (t.layer === "bronze") s.add(t.source);
+      if (t.id === "dim_date") s.add("date");
+    });
+    const out = [...s].sort(bySrc);
+    originMemo.set(cid, out);
+    return out;
+  }
+  const colSpec = (cid) => { const [tb, cn] = cid.split("."); const c = byId[tb].columns.find((x) => x.name === cn); return c ? c.spec : null; };
+  function transformOf(cid) {
+    const ins = WH.columnEdges.filter((e) => e.to === cid);
+    if (!ins.length) return byId[cid.split(".")[0]].layer === "bronze" ? "landed" : "generated";
+    if (ins.length > 1) return ins.some((e) => /^dim_.*\..*_key$/.test(e.from)) ? "key lookup" : "derived from " + ins.length;
+    return ins[0].from.split(".")[1] === cid.split(".")[1] ? "carried" : "renamed from " + ins[0].from.split(".")[1];
+  }
+
+  /* ---------- prose facts, computed ---------- */
+  (function () {
+    const fs = byId.fct_sales;
+    document.getElementById("k-sales-lines").textContent = fs.sources.length;
+    document.getElementById("k-sales-up").textContent = UP.fct_sales.size;
+    const dead = T.filter((t) => t.layer === "bronze" && !t.downstream.length);
+    if (dead.length) {
+      const d0 = dead[0];
+      document.getElementById("k-dead").textContent = d0.id;
+      document.getElementById("k-dead-note").textContent = `it lands ${d3.format(",")(d0.nightly)} rows a night from ${SRC[d0.source].name}, and no table reads it.` + (dead.length > 1 ? ` It is one of ${dead.length} such termini.` : "");
+    }
+    const facts = T.filter((t) => t.kind === "fact");
+    const crmTbl = facts.filter((t) => t.sources.includes("crm"));
+    const crmCol = facts.filter((t) => t.columns.some((c) => colOrigins(t.id + "." + c.name).includes("crm")));
+    document.getElementById("k-crm-tbl").textContent = crmTbl.length;
+    document.getElementById("k-crm-col").textContent = crmCol.length === 0 ? "none of them carries a CRM column"
+      : crmCol.length === 1 ? `only ${crmCol[0].id} carries any, and only because it is built on ${crmCol[0].deps[0]}`
+      : `only ${crmCol.length} carry one`;
+    let landed = 0;
+    const unused = new Set();
+    T.filter((t) => t.layer === "bronze").forEach((t) => t.columns.forEach((c) => {
+      if (c.name.startsWith("_")) return;
+      landed++; if (!WH.downstreamColumns(t.id + "." + c.name).size) unused.add(t.id + "." + c.name);
+    }));
+    const whole = T.filter((t) => t.layer === "bronze" && t.columns.every((c) => c.name.startsWith("_") || unused.has(t.id + "." + c.name))).map((t) => t.id);
+    const joinKeys = ["brz_crm_accounts.erp_customer_id", "brz_web_events.session_id"].filter((k) => unused.has(k));
+    const hier = ["brz_gl_accounts.rollup_l1", "brz_gl_accounts.rollup_l2"].filter((k) => unused.has(k));
+    const code = (k) => `<code>${k}</code>`;
+    let html = `One more thing the column graph says and the table map cannot: <b>${unused.size} of ${landed}</b> Bronze columns (load metadata aside) reach nothing downstream.`;
+    if (whole.length) html += ` That includes every column of ${whole.map(code).join(" and ")}.`;
+    if (joinKeys.length) html += ` Not all of it is waste. ${joinKeys.map(code).join(" and ")} ${joinKeys.length > 1 ? "are" : "is"} how those rows get matched to ERP customers and to sessions, but a join key never becomes an output column, so column lineage scores it as unused. That is lineage's blind spot, not the pipeline's.`;
+    if (hier.length === 2 && byId.dim_gl_account && !byId.dim_gl_account.columns.some((c) => /rollup/.test(c.name))) html += ` Some of it is real: ${code("brz_gl_accounts")} lands the account hierarchy in ${code("rollup_l1")} and ${code("rollup_l2")}, and ${code("dim_gl_account")} keeps neither. Expect to find that hierarchy rebuilt in a spreadsheet somewhere.`;
+    document.getElementById("k-unused").innerHTML = html;
+  })();
+
+  /* =====================================================================
+     Octilinear routing, shared by the map and the strip map.
+     Flow runs left to right. A stroke leaves its start horizontally, turns 45
+     degrees into a vertical channel at x = lane, turns 45 degrees back, and
+     arrives horizontally. Lanes are allocated per destination so tracks bound
+     for different stations never share a channel; tracks of one line bound for
+     the same station do share one, which draws as a junction.
+     ===================================================================== */
+  function strokePoints(st, hmax) {
+    const [x1, y1] = st.p1, [x2, y2] = st.p2, dy = y2 - y1;
+    if (Math.abs(dy) < 0.5 || st.lane == null) return [st.p1, [x2, y1]];
+    const h = Math.min(hmax, Math.abs(dy) / 2), sg = Math.sign(dy), xc = st.lane;
+    const pts = [[x1, y1], [xc - h, y1], [xc, y1 + sg * h]];
+    if (Math.abs(dy) - 2 * h > 0.5) pts.push([xc, y2 - sg * h]);
+    pts.push([xc + h, y2], [x2, y2]);
+    return pts;
+  }
+  function roundedPath(pts, r) {
+    const p = d3.path();
+    p.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i - 1], [bx, by] = pts[i], [cx, cy] = pts[i + 1];
+      const l1 = Math.hypot(bx - ax, by - ay), l2 = Math.hypot(cx - bx, cy - by);
+      const cr = Math.abs((bx - ax) * (cy - by) - (by - ay) * (cx - bx)) / (l1 * l2 || 1);
+      if (cr < 1e-3 || l1 < 0.01 || l2 < 0.01) { p.lineTo(bx, by); continue; }
+      const k = Math.min(r, l1 / 2, l2 / 2);
+      p.lineTo(bx + ((ax - bx) / l1) * k, by + ((ay - by) / l1) * k);
+      p.quadraticCurveTo(bx, by, bx + ((cx - bx) / l2) * k, by + ((cy - by) / l2) * k);
+    }
+    const last = pts[pts.length - 1];
+    p.lineTo(last[0], last[1]);
+    return p.toString();
+  }
+  function permutations(a) {
+    if (a.length <= 1) return [a.slice()];
+    const out = [];
+    a.forEach((x, i) => permutations(a.slice(0, i).concat(a.slice(i + 1))).forEach((p) => out.push([x].concat(p))));
+    return out;
+  }
+  /** Assign st.lane for every bending stroke in one gap. passing: strokes that cross the gap straight. */
+  function allocateGap(bending, passing, region, opt) {
+    if (!bending.length) return;
+    const [g0, g1] = region, laneGap = opt.laneGap, blockGap = opt.blockGap, hmax = opt.hmax;
+    const blocks = Array.from(d3.group(bending, (s) => s.dest), ([dest, list]) => {
+      const lanes = [...new Set(list.map((s) => s.line))].sort(bySrc);
+      const dir = d3.sum(list, (s) => Math.sign(s.p2[1] - s.p1[1]));
+      return { dest, list, lanes: dir > 0 ? lanes.slice().reverse() : lanes, y: list[0].p2[1] };
+    }).sort((a, b) => a.y - b.y);
+    // spread blocks across the free width so channels breathe, within limits
+    const inner = d3.sum(blocks, (b) => b.lanes.length - 1) * laneGap;
+    const avail = (g1 - hmax) - (g0 + hmax);
+    const bg = blocks.length > 1 ? Math.max(blockGap, Math.min(opt.blockMax || blockGap, (avail - inner) / (blocks.length - 1))) : blockGap;
+    function place(order) {
+      const pos = new Map();
+      let x = g1 - hmax;
+      for (let i = order.length - 1; i >= 0; i--) {
+        const b = order[i];
+        for (let j = b.lanes.length - 1; j >= 0; j--) { pos.set(b.dest + "|" + b.lanes[j], x); x -= laneGap; }
+        x -= bg - laneGap;
+      }
+      const lo = d3.min(pos.values()), hi = d3.max(pos.values()), minX = g0 + hmax;
+      if (lo < minX && hi > lo) pos.forEach((v, k) => pos.set(k, minX + ((v - lo) / (hi - lo)) * (hi - minX)));
+      return pos;
+    }
+    function segs(st, xc) {
+      const y1 = st.p1[1], y2 = st.p2[1], a = Math.max(st.p1[0], g0), b = Math.min(st.p2[0], g1);
+      return [{ h: 1, y: y1, x0: a, x1: xc }, { h: 0, x: xc, y0: Math.min(y1, y2), y1: Math.max(y1, y2) }, { h: 1, y: y2, x0: xc, x1: b }];
+    }
+    const hits = (s, t) => {
+      if (s.h === t.h) return 0;
+      const H = s.h ? s : t, V = s.h ? t : s;
+      return V.x > H.x0 + 0.1 && V.x < H.x1 - 0.1 && H.y > V.y0 + 0.1 && H.y < V.y1 - 0.1 ? 1 : 0;
+    };
+    const fixed = passing.map((st) => ({ h: 1, y: st.p1[1], x0: g0, x1: g1 }));
+    function cost(order) {
+      const pos = place(order);
+      const items = bending.map((st) => ({ key: st.dest + "|" + st.line, segs: segs(st, pos.get(st.dest + "|" + st.line)) }));
+      let c = 0;
+      for (let i = 0; i < items.length; i++) {
+        items[i].segs.forEach((s) => fixed.forEach((f) => { c += hits(s, f); }));
+        for (let j = i + 1; j < items.length; j++) {
+          if (items[i].key === items[j].key) continue;
+          items[i].segs.forEach((s) => items[j].segs.forEach((t) => { c += hits(s, t); }));
+        }
+      }
+      return c;
+    }
+    let best = blocks, bestC = Infinity;
+    const cands = blocks.length <= 7 ? permutations(blocks) : [blocks];
+    cands.forEach((o) => { const c = cost(o); if (c < bestC) { bestC = c; best = o; } });
+    const pos = place(best);
+    bending.forEach((st) => { st.lane = pos.get(st.dest + "|" + st.line); });
+  }
+
+  /* =====================================================================
+     1. The table map
+     ===================================================================== */
+  // Station grid [column, row]. Columns: 0 Bronze, 1 Silver, 2 Gold dims, 3 Gold facts.
+  // Placed by hand, as Beck placed his; rows keep each chain on one straight track
+  // and keep a row clear wherever a track has to run express through a column.
+  const GRID = {
+    brz_erp_invoices: [0, 0], slv_invoices: [1, 0], fct_receivables: [3, 0],
+    brz_erp_orders: [0, 1], slv_orders: [1, 1],
+    dim_channel: [2, 2],
+    brz_erp_order_lines: [0, 3], slv_order_lines: [1, 3], fct_sales: [3, 3],
+    brz_erp_items: [0, 4], slv_items: [1, 4],
+    dim_product: [2, 5],
+    brz_erp_customers: [0, 6], slv_customers: [1, 6.5], dim_customer: [2, 6.5],
+    brz_crm_accounts: [0, 7],
+    brz_crm_opportunities: [0, 8], slv_opportunities: [1, 8], fct_pipeline: [3, 8],
+    brz_crm_contacts: [0, 9],
+    brz_hr_employees: [0, 10], slv_employees: [1, 10], dim_employee: [2, 10],
+    brz_wms_shipments: [0, 11], slv_shipments: [1, 11], fct_shipments: [3, 11],
+    brz_wms_locations: [0, 12], slv_warehouses: [1, 12], dim_warehouse: [2, 12],
+    brz_wms_inventory_snap: [0, 13], slv_inventory: [1, 13], fct_inventory_daily: [3, 13],
+    brz_web_events: [0, 14], slv_sessions: [1, 14.5], fct_web_sessions: [3, 14.5],
+    brz_web_sessions: [0, 15],
+    brz_gl_journal: [0, 16], slv_gl_entries: [1, 16.5], fct_gl: [3, 16.5],
+    brz_gl_accounts: [0, 17], dim_gl_account: [2, 17.5],
+  };
+  // Anything added to the warehouse later still gets a place, below the hand-set grid.
+  (function () {
+    let extra = 18.5;
+    const colOf = (t) => (t.layer === "bronze" ? 0 : t.layer === "silver" ? 1 : t.kind === "dim" ? 2 : 3);
+    T.forEach((t) => { if (!GRID[t.id] && t.id !== "dim_date") GRID[t.id] = [colOf(t), extra++]; });
+  })();
+
+  const M = (function layoutMap() {
+    const X = [160, 345, 545, 880], rowH = 30, y0 = 96;
+    const yOf = (r) => y0 + r * rowH;
+    const slot = 5.5;
+    const trunkX = X[3] + 32;
+    const maxRow = d3.max(Object.values(GRID), (g) => g[1]);
+    const W = trunkX + 14 + CW * d3.max(T.filter((t) => t.kind === "fact"), (t) => t.id.length) + 12;
+    const H = yOf(maxRow) + 34;
+    const st = {};
+    T.forEach((t) => {
+      const lines = t.sources.slice().sort(bySrc);
+      if (t.id === "dim_date") { st[t.id] = { t, x: trunkX, y: yOf(-1.2), lines: ["date"], col: 3.5 }; return; }
+      const [c, r] = GRID[t.id];
+      st[t.id] = { t, x: X[c], y: yOf(r), col: c, row: r, lines };
+    });
+    const off = (id, s) => { const L = st[id].lines; return (L.indexOf(s) - (L.length - 1) / 2) * slot; };
+    const occupied = (c, r) => Object.values(st).some((s) => s.col === c && Math.abs(s.row - r) < 0.6);
+
+    const strokes = [];
+    T.forEach((v) => v.deps.forEach((u) => {
+      if (u === "dim_date") {
+        strokes.push({ u, v: v.id, dest: v.id, line: "date", shuttle: true,
+          pts: [[trunkX, st[u].y], [trunkX, st[v.id].y], [X[3], st[v.id].y]] });
+        return;
+      }
+      const a = st[u], b = st[v.id];
+      // Bend in the last gap if the source row runs clear through the columns between; otherwise in the first.
+      let gap = b.col - 1;
+      for (let c = a.col + 1; c < b.col; c++) if (occupied(c, a.row)) { gap = a.col; break; }
+      a.lines.forEach((s) => strokes.push({ u, v: v.id, dest: v.id, line: s, gap,
+        p1: [a.x, a.y + off(u, s)], p2: [b.x, b.y + off(v.id, s)] }));
+    }));
+    const regions = [[X[0] + 14, X[1] - 14], [X[1] + 122, X[2] - 14], [X[2] + 122, X[3] - 14]];
+    regions.forEach((rg, g) => {
+      const mine = strokes.filter((s) => !s.shuttle && s.gap === g);
+      const bending = mine.filter((s) => Math.abs(s.p2[1] - s.p1[1]) >= 0.5);
+      const passing = strokes.filter((s) => !s.shuttle && Math.abs(s.p2[1] - s.p1[1]) < 0.5 && st[s.u].col <= g && st[s.v].col > g)
+        .concat(strokes.filter((s) => !s.shuttle && Math.abs(s.p2[1] - s.p1[1]) >= 0.5 && st[s.u].col <= g && s.gap > g));
+      allocateGap(bending, passing, rg, { laneGap: slot, blockGap: 11, blockMax: 26, hmax: 18 });
+    });
+    strokes.forEach((s) => {
+      if (s.shuttle) return;
+      s.pts = strokePoints(s, 18);
+      s.d = roundedPath(s.pts, 6);
+    });
+    strokes.filter((s) => s.shuttle).forEach((s) => { s.d = roundedPath(s.pts, 8); });
+    return { X, yOf, st, strokes, W, H, trunkX, slot };
+  })();
+
+  /* line key */
+  (function () {
+    const sw = (c, dash) => `<svg width="26" height="10" aria-hidden="true"><line x1="1" x2="25" y1="5" y2="5" style="stroke:${c};stroke-width:3.2;stroke-linecap:round${dash ? ";stroke-dasharray:" + dash : ""}"></line></svg>`;
+    const key = WH.sources.map((s) => `<span>${sw(WH.sourceColor(s.id))}${s.name} <span class="sym">${s.kind.toLowerCase()}</span></span>`);
+    key.push(`<span>${sw("var(--text-muted)")}Date shuttle <span class="sym">generated, no source</span></span>`);
+    document.getElementById("line-key").innerHTML = key.join("");
+  })();
+
+  const mapHost = document.getElementById("map");
+  const readout = document.getElementById("map-readout");
+  const defaultReadout = "Nothing selected. Click a station.";
+  let selected = null, zoomBeh = null, svgMap = null, gView = null;
+
+  function stationLabel(s) {
+    const t = s.t;
+    if (t.id === "dim_date") return { x: s.x + 12, y: s.y + 3.5, anchor: "start" };
+    if (s.col === 0) return { x: s.x - 12, y: s.y + 3.5, anchor: "end" };
+    if (s.col === 3) return { x: M.trunkX + 14, y: s.y + 3.5, anchor: "start" };
+    const top = s.lines.length > 1 ? s.y - ((s.lines.length - 1) / 2) * M.slot - 5.5 : s.y - 8;
+    return { x: s.x - 4, y: top - 5, anchor: "start" };
+  }
+
+  function renderMap() {
+    const avail = Math.max(300, Lab.width(mapHost.parentNode) || mapHost.clientWidth || 900);
+    const { W, H, X, st, strokes } = M;
+    mapHost.innerHTML = "";
+    const svg = d3.select(mapHost).append("svg")
+      .attr("viewBox", `0 0 ${W} ${H}`).attr("width", Math.min(avail, W * 1.08)).attr("height", Math.min(avail, W * 1.08) * H / W)
+      .attr("role", "group").attr("aria-label", "Transit-map style lineage diagram of the warehouse. Stations are focusable; press Enter to trace one.");
+    svgMap = svg;
+    const g = svg.append("g").attr("class", "viewport");
+    gView = g;
+
+    // background catches clicks on empty space
+    g.append("rect").attr("x", 0).attr("y", 0).attr("width", W).attr("height", H).style("fill", "transparent")
+      .on("click", () => select(null));
+
+    // fare zones
+    const zb = [0, (X[0] + X[1]) / 2, (X[1] + X[2]) / 2, W];
+    const zones = [["Zone 1", "Bronze", "raw landings"], ["Zone 2", "Silver", "cleaned, conformed"], ["Zone 3", "Gold", "dimensions and facts"]];
+    zones.forEach(([z, n, sub], i) => {
+      g.append("rect").attr("x", zb[i]).attr("y", 0).attr("width", zb[i + 1] - zb[i]).attr("height", H)
+        .style("fill", i === 1 ? "transparent" : "var(--surface-2)").style("opacity", 0.6).style("pointer-events", "none");
+      const tx = i === 0 ? 14 : zb[i] + 14;
+      g.append("text").attr("class", "zone-label").attr("x", tx).attr("y", 22).text(`${z} · ${n}`);
+      g.append("text").attr("class", "zone-sub").attr("x", tx).attr("y", 36).text(sub);
+      if (i > 0) g.append("line").attr("x1", zb[i]).attr("x2", zb[i]).attr("y1", 0).attr("y2", H)
+        .style("stroke", "var(--grid)").style("stroke-dasharray", "2 4").style("pointer-events", "none");
+    });
+
+    // tracks: shuttle first, then lines in fixed order so overlaps stack predictably
+    const order = strokes.slice().sort((a, b) => srcIdx(b.line) - srcIdx(a.line));
+    const trk = g.append("g").attr("class", "tracks");
+    const tSel = trk.selectAll("g.t").data(order).join("g").attr("class", "t");
+    tSel.append("path").attr("class", "trk").attr("d", (s) => s.d).style("stroke", (s) => srcColor(s.line));
+    tSel.append("path").attr("class", "trk-hit").attr("d", (s) => s.d)
+      .on("pointermove", (e, s) => Lab.tooltip.show(e, `<strong>${srcName(s.line)}${s.shuttle ? "" : " line"}</strong><br>${s.u} <span class="tt-k">to</span> ${s.v}`))
+      .on("pointerleave", () => Lab.tooltip.hide())
+      .on("click", () => select(null));
+
+    // the dead-end stub(s)
+    const stubs = T.filter((t) => t.layer === "bronze" && !t.downstream.length);
+    stubs.forEach((t) => {
+      const s = st[t.id], c = srcColor(t.source), x2 = s.x + 38;
+      const gg = trk.append("g").attr("class", "t stub").datum({ u: t.id, v: t.id, line: t.source, stub: true });
+      gg.append("path").attr("class", "trk").attr("d", `M${s.x},${s.y}H${x2}`).style("stroke", c);
+      gg.append("line").attr("class", "tick").attr("x1", x2).attr("x2", x2).attr("y1", s.y - 6).attr("y2", s.y + 6).style("stroke", c);
+      gg.append("text").attr("class", "stn-note").attr("x", x2 + 8).attr("y", s.y + 3.5).text("no onward service");
+    });
+
+    // stations
+    const stns = g.append("g").attr("class", "stations").selectAll("g.stn").data(Object.values(st), (s) => s.t.id).join("g").attr("class", "stn");
+    stns.each(function (s) {
+      const gg = d3.select(this), t = s.t, k = s.lines.length;
+      const interchange = t.id !== "dim_date" && (k > 1 || t.deps.includes("dim_date"));
+      if (t.id === "dim_date") {
+        gg.append("circle").attr("class", "ring").attr("cx", s.x).attr("cy", s.y).attr("r", 5.5);
+      } else if (s.col === 0) {
+        gg.append("line").attr("class", "tick").attr("x1", s.x).attr("x2", s.x).attr("y1", s.y - 6).attr("y2", s.y + 6).style("stroke", srcColor(s.lines[0]));
+      } else if (interchange) {
+        const top = s.y - ((k - 1) / 2) * M.slot - 5.5;
+        gg.append("rect").attr("class", "ring").attr("x", s.x - 5.5).attr("y", top).attr("width", 11).attr("height", (k - 1) * M.slot + 11).attr("rx", 5.5);
+      } else {
+        gg.append("line").attr("class", "tick").attr("x1", s.x).attr("x2", s.x).attr("y1", s.y - 1).attr("y2", s.y - 7).style("stroke", srcColor(s.lines[0]));
+      }
+      const L = stationLabel(s);
+      gg.append("text").attr("class", "stn-label").attr("x", L.x).attr("y", L.y).attr("text-anchor", L.anchor).text(t.id);
+      if (t.id === "dim_date") gg.append("text").attr("class", "stn-note").attr("x", L.x).attr("y", L.y + 13).text("shuttle to every fact");
+      const lw = CW * t.id.length;
+      const lx0 = L.anchor === "end" ? L.x - lw : L.x;
+      const bx0 = Math.min(lx0, s.x - 8) - 3, bx1 = Math.max(lx0 + lw, s.x + 8) + 3;
+      const by0 = Math.min(L.y - 11, s.y - 9), by1 = Math.max(L.y + 3, s.y + ((k - 1) / 2) * M.slot + 8);
+      gg.append("rect").attr("class", "stn-hit").attr("x", bx0).attr("y", by0).attr("width", bx1 - bx0).attr("height", by1 - by0).attr("rx", 3)
+        .attr("tabindex", 0).attr("role", "button")
+        .attr("aria-label", `${t.id}, ${LAYER[t.layer]} ${KIND[t.kind]}, ${WH.fmtRows(t.size)} rows. Lines: ${linesOf(t).map(srcName).join(", ") || "none"}. ${UP[t.id].size} upstream, ${DOWN[t.id].size} downstream.`)
+        .on("pointermove", (e) => Lab.tooltip.show(e, tipFor(t)))
+        .on("pointerleave", () => Lab.tooltip.hide())
+        .on("click", (e) => { e.stopPropagation(); select(selected === t.id ? null : t.id); })
+        .on("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(selected === t.id ? null : t.id); }
+          if (e.key === "Escape") select(null);
+        });
+    });
+
+    setupZoom(avail);
+    paintSelection();
+  }
+
+  function tipFor(t) {
+    const lines = linesOf(t);
+    const nightly = t.nightly === "full" ? "full reload nightly" : `about ${WH.fmtRows(t.nightly)} new rows a night`;
+    return `<strong>${t.id}</strong><br><span class="tt-k">Zone</span> ${LAYER[t.layer]} ${KIND[t.kind]}<br>`
+      + `<span class="tt-k">Rows</span> ${WH.fmtRows(t.size)}, ${nightly}<br>`
+      + `<span class="tt-k">Lines</span> ${lines.length ? lines.map(srcName).join(", ") : "none"}<br>`
+      + `<span class="tt-k">Upstream</span> ${UP[t.id].size} · <span class="tt-k">downstream</span> ${DOWN[t.id].size}`;
+  }
+
+  function select(id) {
+    selected = id;
+    paintSelection();
+  }
+  function paintSelection() {
+    if (!svgMap) return;
+    const on = new Set(), up = selected ? UP[selected] : new Set(), down = selected ? DOWN[selected] : new Set();
+    if (selected) { on.add(selected); up.forEach((x) => on.add(x)); down.forEach((x) => on.add(x)); }
+    svgMap.classed("has-sel", !!selected);
+    svgMap.selectAll(".stn").classed("on", (s) => on.has(s.t.id)).classed("sel", (s) => s.t.id === selected);
+    svgMap.selectAll("g.t").classed("on", false).select(".trk").classed("on", (s) => {
+      if (!selected) return false;
+      if (s.stub) return s.u === selected;
+      return ((s.v === selected || up.has(s.v)) && up.has(s.u)) || ((s.u === selected || down.has(s.u)) && down.has(s.v));
+    });
+    if (selected) svgMap.selectAll("g.t").filter(function () { return this.querySelector(".trk.on"); }).raise();
+    svgMap.selectAll(".stub .tick, .stub .stn-note").style("opacity", (s) => (!selected || s.u === selected ? null : 0.12));
+    if (!selected) { readout.textContent = defaultReadout; return; }
+    const t = byId[selected];
+    const srcs = new Set(t.sources);
+    up.forEach((x) => byId[x].sources.forEach((s) => srcs.add(s)));
+    const names = [...srcs].sort(bySrc).map((s) => SRC[s].name);
+    const facts = [...down].filter((x) => byId[x].kind === "fact").length;
+    if (t.layer === "bronze") {
+      readout.innerHTML = `<code>${t.id}</code>: lands from ${SRC[t.source].name}, <b>${down.size}</b> table${down.size === 1 ? "" : "s"} downstream` + (down.size ? ` (${facts} fact${facts === 1 ? "" : "s"}).` : ". Landed every night, read by nothing.");
+      return;
+    }
+    if (!up.size) {
+      readout.innerHTML = `<code>${t.id}</code>: generated in ${LAYER[t.layer]}, no upstream, <b>${down.size}</b> downstream` + (down.size ? ` (${facts} fact${facts === 1 ? "" : "s"}).` : ".");
+      return;
+    }
+    readout.innerHTML = `<code>${t.id}</code>: <b>${up.size}</b> upstream table${up.size === 1 ? "" : "s"} from <b>${names.length}</b> source system${names.length === 1 ? "" : "s"}`
+      + (names.length ? ` (${names.join(", ")})` : "")
+      + `, <b>${down.size}</b> downstream` + (down.size ? ` (${facts} fact${facts === 1 ? "" : "s"})` : "")
+      + ".";
+  }
+
+  function setupZoom(avail) {
+    const ctl = document.getElementById("zoom-ctl");
+    const shown = Math.min(avail, M.W * 1.08);
+    const need = shown / M.W < 0.82;
+    ctl.hidden = !need;
+    svgMap.classed("zoomable", need);
+    if (!need) { zoomBeh = null; return; }
+    zoomBeh = d3.zoom().scaleExtent([1, 4]).translateExtent([[0, 0], [M.W, M.H]]).extent([[0, 0], [M.W, M.H]])
+      .filter((e) => {
+        if (e.type === "wheel") return e.ctrlKey || e.metaKey;
+        if (e.touches) return e.touches.length >= 2;
+        return !e.button;
+      })
+      .on("zoom", (e) => { gView.attr("transform", e.transform); Lab.tooltip.hide(); });
+    svgMap.call(zoomBeh).on("dblclick.zoom", null);
+  }
+  const dur = () => (Lab.reducedMotion() ? 0 : 250);
+  document.getElementById("z-in").addEventListener("click", () => zoomBeh && svgMap.transition().duration(dur()).call(zoomBeh.scaleBy, 1.6));
+  document.getElementById("z-out").addEventListener("click", () => zoomBeh && svgMap.transition().duration(dur()).call(zoomBeh.scaleBy, 1 / 1.6));
+  document.getElementById("z-fit").addEventListener("click", () => zoomBeh && svgMap.transition().duration(dur()).call(zoomBeh.transform, d3.zoomIdentity));
+
+  // the map's twin: stations, their lines and reach
+  Lab.tableView("#map-table",
+    [{ key: "id", label: "Station (table)" }, { key: "zone", label: "Zone" }, { key: "rows", label: "Rows", align: "r" },
+     { key: "lines", label: "Lines" }, { key: "up", label: "Upstream", align: "r" }, { key: "down", label: "Downstream", align: "r" }],
+    WH.order.map((id) => byId[id]).sort((a, b) => WH.layers.indexOf(a.layer) - WH.layers.indexOf(b.layer))
+      .map((t) => ({ id: t.id, zone: `${LAYER[t.layer]} ${KIND[t.kind]}`, rows: WH.fmtRows(t.size), lines: linesOf(t).map(srcName).join(", ") || "none", up: UP[t.id].size, down: DOWN[t.id].size })),
+    "Show the stations as a table");
+
+  /* =====================================================================
+     2. The column strip map
+     ===================================================================== */
+  const pick = document.getElementById("col-pick");
+  (function fillPicker() {
+    const addGroup = (label, mode, tables, test) => {
+      const og = document.createElement("optgroup");
+      og.label = label;
+      tables.forEach((t) => t.columns.forEach((c) => {
+        const id = t.id + "." + c.name;
+        if (c.name.startsWith("_") || !test(id)) return;
+        const o = document.createElement("option");
+        o.value = mode + ":" + id; o.textContent = id;
+        og.appendChild(o);
+      }));
+      pick.appendChild(og);
+    };
+    addGroup("Trace back from a Gold column", "up", T.filter((t) => t.layer === "gold"), (id) => WH.upstreamColumns(id).size > 0);
+    addGroup("Trace forward from a Bronze column", "down", T.filter((t) => t.layer === "bronze"), (id) => WH.downstreamColumns(id).size > 0);
+  })();
+  const PRESETS = [
+    ["up:fct_sales.cost_amount", "cost_amount", "Two Bronze columns, two tables"],
+    ["up:fct_sales.discount_amount", "discount_amount", "Fan-in: three columns make one"],
+    ["up:fct_pipeline.customer_key", "fct_pipeline.customer_key", "A CRM id looked up against an ERP-keyed dimension"],
+    ["down:brz_erp_customers.customer_id", "brz_erp_customers.customer_id", "Fan-out to every customer key"],
+    ["down:brz_erp_orders.customer_id", "brz_erp_orders.customer_id", "Fan-out from the order header"],
+  ].filter(([v]) => [...pick.options].some((o) => o.value === v));
+  const presetHost = document.getElementById("presets");
+  PRESETS.forEach(([v, label, title]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = label; b.title = title; b.dataset.v = v;
+    b.addEventListener("click", () => { pick.value = v; renderStrip(); });
+    presetHost.appendChild(b);
+  });
+  pick.value = PRESETS.length ? PRESETS[0][0] : pick.options[0].value;
+  pick.addEventListener("change", renderStrip);
+
+  const stripHost = document.getElementById("strip"), stripReadout = document.getElementById("strip-readout"), stripTable = document.getElementById("strip-table");
+
+  function traceGraph(mode, root) {
+    const far = mode === "up" ? WH.upstreamColumns(root) : WH.downstreamColumns(root);
+    const ids = [root, ...far.keys()];
+    const set = new Set(ids);
+    const edges = WH.columnEdges.filter((e) => set.has(e.from) && set.has(e.to) && (mode === "up" ? far.has(e.from) : far.has(e.to)));
+    const nodes = new Map(ids.map((id) => [id, { id, tbl: id.split(".")[0], col: id.split(".")[1], layer: colLayer(id), depth: id === root ? 0 : far.get(id), ins: [], outs: [] }]));
+    edges.forEach((e) => { nodes.get(e.to).ins.push(e.from); nodes.get(e.from).outs.push(e.to); });
+    // tidy rows: leaves get a row each in depth-first order from the root; the rest sit at the mean of their far neighbours
+    const away = (n) => (mode === "up" ? n.ins : n.outs);
+    const seen = new Set(), leaves = [];
+    (function dfs(id) { if (seen.has(id)) return; seen.add(id); const n = nodes.get(id); const a = away(n); if (!a.length) leaves.push(id); a.forEach(dfs); })(root);
+    const rowMemo = new Map();
+    leaves.forEach((id, i) => rowMemo.set(id, i));
+    const rowOf = (id) => { if (rowMemo.has(id)) return rowMemo.get(id); const v = d3.mean(away(nodes.get(id)), rowOf); rowMemo.set(id, v); return v; };
+    nodes.forEach((n) => { n.row = rowOf(n.id); });
+    // keep a full row between stops in one column
+    d3.groups([...nodes.values()], (n) => n.layer).forEach(([, list]) => {
+      list.sort((a, b) => a.row - b.row || a.id.localeCompare(b.id));
+      for (let i = 1; i < list.length; i++) if (list[i].row < list[i - 1].row + 1) list[i].row = list[i - 1].row + 1;
+    });
+    return { nodes, edges, root, mode, leaves: leaves.length };
+  }
+
+  function renderStrip() {
+    const [mode, root] = pick.value.split(/:(.+)/);
+    presetHost.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === pick.value ? "true" : "false"));
+    const G = traceGraph(mode, root);
+    const nodes = [...G.nodes.values()];
+    const layers = [...new Set(nodes.map((n) => n.layer))].sort();
+    const li = (n) => layers.indexOf(n.layer);
+    const avail = Math.max(280, Lab.width(stripHost.parentNode) || 900);
+    const narrow = avail < 640;
+    const lw = (n) => Math.max(n.col.length * 6.6, n.tbl.length * 5.7) + 10;
+    let W, H, labelOf, hmax, regions, pos;
+    if (!narrow) {
+      const minRow = d3.min(nodes, (n) => n.row), rowH = 56, top = 60;
+      const colLW = layers.map((L) => d3.max(nodes.filter((n) => n.layer === L), lw));
+      const colX = [24];
+      const spare = layers.length > 1 ? (avail - 24 - colLW[colLW.length - 1] - 16) / (layers.length - 1) : 0;
+      for (let i = 1; i < layers.length; i++) colX.push(colX[i - 1] + Math.max(170, colLW[i - 1] + 70, Math.min(320, spare)));
+      W = colX[colX.length - 1] + colLW[colLW.length - 1] + 16;
+      H = top + (d3.max(nodes, (n) => n.row) - minRow) * rowH + 24;
+      pos = (n) => [colX[li(n)], top + (n.row - minRow) * rowH];
+      labelOf = (n, [x, y], k) => ({ mode: "above", x: x - 3, y: y - (k > 1 ? ((k - 1) / 2) * 4.5 + 4.5 : 4.5) - 5 });
+      hmax = 16;
+      regions = layers.slice(0, -1).map((L, i) => [colX[i] + colLW[i] - 6, colX[i + 1] - 12]);
+    } else {
+      const sorted = nodes.slice().sort((a, b) => a.layer - b.layer || a.row - b.row);
+      sorted.forEach((n, i) => { n.seq = i; });
+      const laneX = layers.map((L, i) => 14 + i * 34), rowH = 30, top = 16;
+      const lx = laneX[laneX.length - 1] + 18;
+      W = Math.max(avail, lx + d3.max(nodes, (n) => n.col.length * 6.6 + 8 + n.tbl.length * 5.7));
+      H = top + (nodes.length - 1) * rowH + 18;
+      pos = (n) => [laneX[li(n)], top + n.seq * rowH];
+      labelOf = (n, [, y]) => ({ mode: "right", x: lx, y: y + 4 });
+      hmax = 5;
+      regions = layers.slice(0, -1).map((L, i) => [laneX[i] + 6, laneX[i + 1] - 6]);
+    }
+    const P = new Map(nodes.map((n) => [n.id, pos(n)]));
+    const O = new Map(nodes.map((n) => [n.id, colOrigins(n.id)]));
+    const gapS = 4.5;
+    const off = (id, s) => { const L = O.get(id); return (L.indexOf(s) - (L.length - 1) / 2) * gapS; };
+    const strokes = [];
+    G.edges.forEach((e) => {
+      const a = G.nodes.get(e.from), b = G.nodes.get(e.to), pa = P.get(e.from), pb = P.get(e.to);
+      let gap = li(b) - 1;
+      for (let c = li(a) + 1; c < li(b); c++) if (nodes.some((n) => li(n) === c && Math.abs(P.get(n.id)[1] - pa[1]) < 20)) { gap = li(a); break; }
+      O.get(e.from).forEach((s) => strokes.push({ u: e.from, v: e.to, dest: e.to, line: s, gap,
+        p1: [pa[0], pa[1] + off(e.from, s)], p2: [pb[0], pb[1] + off(e.to, s)] }));
+    });
+    regions.forEach((rg, g) => {
+      const bending = strokes.filter((s) => s.gap === g && Math.abs(s.p2[1] - s.p1[1]) >= 0.5);
+      const passing = strokes.filter((s) => li(G.nodes.get(s.u)) <= g && li(G.nodes.get(s.v)) > g && (Math.abs(s.p2[1] - s.p1[1]) < 0.5 || s.gap > g));
+      allocateGap(bending, passing, rg, { laneGap: narrow ? 4.5 : 5, blockGap: narrow ? 6 : 10, blockMax: narrow ? 8 : 22, hmax });
+    });
+    strokes.forEach((s) => { s.d = roundedPath(strokePoints(s, hmax), narrow ? 4 : 7); });
+
+    stripHost.innerHTML = "";
+    const shownW = Math.min(avail, W);
+    const svg = d3.select(stripHost).append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("width", shownW).attr("height", shownW * H / W)
+      .attr("role", "img").attr("aria-label", `Column lineage strip map for ${root}. The same edges are listed in the table below.`);
+    // zone ticks along the top in the wide layout
+    if (!narrow) {
+      const names = ["Bronze", "Silver", "Gold dim", "Gold fact"];
+      layers.forEach((L) => {
+        const n = nodes.find((x) => x.layer === L);
+        svg.append("text").attr("class", "zone-label").attr("x", P.get(n.id)[0] - 3).attr("y", 12).text(names[L]);
+      });
+    }
+    svg.append("g").selectAll("path").data(strokes.slice().sort((a, b) => srcIdx(b.line) - srcIdx(a.line))).join("path")
+      .attr("class", "trk").attr("d", (s) => s.d).style("stroke", (s) => srcColor(s.line)).style("stroke-width", narrow ? 2.6 : 3.2);
+    const gs = svg.append("g").selectAll("g").data(nodes).join("g");
+    gs.each(function (n) {
+      const g = d3.select(this), [x, y] = P.get(n.id), k = O.get(n.id).length || 1, isRoot = n.id === root;
+      const r = narrow ? 4 : 4.8;
+      if (k > 1) g.append("rect").attr("class", "stop" + (isRoot ? " root" : "")).attr("x", x - r).attr("y", y - ((k - 1) / 2) * gapS - r).attr("width", 2 * r).attr("height", (k - 1) * gapS + 2 * r).attr("rx", r);
+      else g.append("circle").attr("class", "stop" + (isRoot ? " root" : "")).attr("cx", x).attr("cy", y).attr("r", r);
+      const L = labelOf(n, [x, y], k);
+      if (L.mode === "above") {
+        g.append("text").attr("class", "strip-tbl").attr("x", L.x).attr("y", L.y - 12).text(n.tbl);
+        g.append("text").attr("class", "strip-label" + (isRoot ? " strip-root" : "")).attr("x", L.x).attr("y", L.y).text(n.col);
+      } else {
+        const tx = g.append("text").attr("class", "strip-label" + (isRoot ? " strip-root" : "")).attr("x", L.x).attr("y", L.y);
+        tx.append("tspan").text(n.col);
+        tx.append("tspan").attr("class", "strip-tbl").attr("dx", 6).text(n.tbl);
+      }
+      const ins = WH.columnEdges.filter((e) => e.to === n.id).length;
+      g.append("rect").attr("class", "stop-hit")
+        .attr("x", Math.min(x, L.x) - 8).attr("y", L.mode === "above" ? L.y - 24 : y - 12)
+        .attr("width", (L.mode === "above" ? Math.max(n.col.length * 6.6, n.tbl.length * 5.7) : L.x - x + n.col.length * 6.6 + 6 + n.tbl.length * 5.7) + 14)
+        .attr("height", L.mode === "above" ? y - (L.y - 24) + 10 : 24)
+        .on("pointermove", (e) => Lab.tooltip.show(e, `<strong>${n.id}</strong><br><span class="tt-k">Zone</span> ${["Bronze", "Silver", "Gold dimension", "Gold fact"][n.layer]}<br>`
+          + `<span class="tt-k">Built</span> ${transformOf(n.id)}${colSpec(n.id) ? ` <span class="tt-k">(${colSpec(n.id).replace(/,/g, ", ")})</span>` : ""}<br>`
+          + `<span class="tt-k">Origin</span> ${O.get(n.id).map(srcName).join(", ") || "none"}<br>`
+          + (isRoot ? `<span class="tt-k">Selected column</span>` : `<span class="tt-k">${n.depth} hop${n.depth === 1 ? "" : "s"} ${mode === "up" ? "upstream" : "downstream"}</span>`)
+          + (ins > 1 ? `<br><span class="tt-k">Fan-in</span> ${ins} columns` : "")))
+        .on("pointerleave", () => Lab.tooltip.hide());
+    });
+
+    // readout
+    const others = nodes.filter((n) => n.id !== root);
+    const tables = new Set(others.map((n) => n.tbl));
+    if (mode === "up") {
+      const brz = others.filter((n) => n.layer === 0), srcs = [...new Set(brz.map((n) => byId[n.tbl].source))].sort(bySrc);
+      const fanIn = WH.columnEdges.filter((e) => e.to === root).length;
+      const gen = others.filter((n) => n.tbl === "dim_date");
+      readout_(`<code>${root}</code> is built from <b>${fanIn}</b> column${fanIn === 1 ? "" : "s"} and draws on <b>${others.length}</b> in all, across <b>${tables.size}</b> table${tables.size === 1 ? "" : "s"}. `
+        + `It starts at <b>${brz.length}</b> Bronze column${brz.length === 1 ? "" : "s"} from <b>${srcs.length}</b> source system${srcs.length === 1 ? "" : "s"}` + (srcs.length ? ` (${srcs.map((s) => SRC[s].name).join(", ")})` : "")
+        + (gen.length ? `, plus the generated <code>dim_date</code>` : "") + "."
+        + (srcs.length > 1 && /_key$/.test(root) ? ` A surrogate key resolved through ids from two systems: worth checking the two actually match.` : "")
+        + (byId[root.split(".")[0]].sources.length > srcs.length ? ` The table it sits in is on ${byId[root.split(".")[0]].sources.length} lines; this column is on ${srcs.length}.` : ""));
+    } else {
+      const gold = others.filter((n) => n.layer >= 2), facts = new Set(others.filter((n) => n.layer === 3).map((n) => n.tbl));
+      readout_(`<code>${root}</code> reaches <b>${others.length}</b> column${others.length === 1 ? "" : "s"} in <b>${tables.size}</b> table${tables.size === 1 ? "" : "s"}; <b>${gold.length}</b> of them are in Gold, across <b>${facts.size}</b> fact table${facts.size === 1 ? "" : "s"}. That is the blast radius of a rename at the source.`);
+    }
+    stripTable.innerHTML = "";
+    Lab.tableView(stripTable,
+      [{ key: "from", label: "From" }, { key: "to", label: "To" }, { key: "how", label: "How the target is built" }, { key: "hop", label: "Hops from selection", align: "r" }],
+      G.edges.map((e) => ({ from: e.from, to: e.to, how: transformOf(e.to), hop: mode === "up" ? G.nodes.get(e.from).depth : G.nodes.get(e.to).depth }))
+        .sort((a, b) => a.hop - b.hop || a.from.localeCompare(b.from)),
+      `Show the ${G.edges.length} edges of this trace as a table`);
+  }
+  function readout_(html) { stripReadout.innerHTML = html; }
+
+  Lab.responsive(() => { Lab.tooltip.hide(); renderMap(); renderStrip(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && selected) select(null); });
+})();
+</script>
+</body>
+</html>

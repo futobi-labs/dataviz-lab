@@ -2,7 +2,7 @@
    Load after d3 and lab.js. Exposes window.WH.
 
    A fictional distributor's Fabric-style medallion warehouse: 6 source systems,
-   16 Bronze tables, 12 Silver, 13 Gold (7 dims, 6 facts). A year of nightly loads
+   16 Bronze tables, 12 Silver, 14 Gold (7 dims, 7 facts). A year of nightly loads
    (2025-11-23 to 2026-11-22) is simulated with a list scheduler, so every start
    time, wait and cascade follows from dependencies, source arrival and slots.
    Everything is seeded: a reload is the same year. No real client, table or number. */

@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A year of tests · Data Viz Lab</title>
+<meta name="description" content="A year of nightly data-quality tests as a calendar, a barcode per test, and a before-and-after for the month-end volume test that cries wolf.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="warehouse.js"></script>
+<style>
+  .cal-wrap { position: relative; }
+  .cal-svg:focus { outline: none; }
+  .cal-svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+  .cal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 10px; font-variant-numeric: tabular-nums; }
+  .cal-legend .sw { display: inline-block; width: 22px; height: 11px; border-radius: 2px; }
+  .cal-legend .lg-item { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; min-width: 30px; }
+  .cal-legend .lg-cap { margin-right: 8px; }
+  .lab-mono { font: 11px var(--mono); }
+  .inc-label { fill: var(--text-secondary); font: 11px var(--sans); }
+  .inc-line { stroke: var(--text-muted); stroke-width: 1; fill: none; }
+  .month-edge { fill: none; stroke: var(--text-muted); stroke-width: 1; stroke-opacity: 0.55; pointer-events: none; }
+  .day-sel { fill: none; stroke: var(--text-primary); stroke-width: 2; pointer-events: none; }
+
+  .night { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 12px; }
+  .night h3 { margin: 0 0 4px; font-size: 1rem; }
+  .night .meta { color: var(--text-secondary); font-size: 0.88rem; margin: 0 0 8px; max-width: none; }
+  .counts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.88rem; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
+  .counts b { font-weight: 600; }
+  .night .scroll { max-height: 340px; overflow: auto; }
+  .night table.lab { width: 100%; font-size: 0.82rem; }
+  .night table.lab td { vertical-align: top; }
+  .night td.mono { font-family: var(--mono); font-size: 0.78rem; word-break: break-word; }
+  .oc { white-space: nowrap; }
+  .oc .ico { display: inline-block; width: 1.1em; text-align: center; font-weight: 700; }
+  .oc-fail .ico { color: var(--critical); }
+  .oc-warn .ico { color: var(--warning); }
+  .oc-not_run .ico { color: var(--text-muted); }
+  .oc-pass .ico { color: var(--good); }
+  @media (max-width: 560px) { .night .col-note { display: none; } }
+
+  .bc-key { font: 600 10px var(--sans); fill: var(--text-secondary); }
+  .bc-key-ring { fill: none; stroke: var(--text-secondary); stroke-width: 1; }
+  .bc-note { fill: var(--text-primary); font: 12px var(--sans); }
+  .bc-note-sub { fill: var(--text-secondary); font: 12px var(--sans); }
+  .bc-row-hit { fill: transparent; }
+  .bc-row:hover .bc-base { stroke: var(--text-muted); }
+
+  .fix-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 24px; align-items: start; }
+  @media (max-width: 820px) { .fix-grid { grid-template-columns: 1fr; } }
+  .fix-grid .figure { margin: 0; }
+  .stat-line { font-size: 0.92rem; color: var(--text-secondary); margin: 8px 0 0; }
+  .stat-line b { color: var(--text-primary); }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/" aria-current="true">Engineer's eye</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">The engineer's eye</p>
+  <h1>A year of tests</h1>
+  <p class="lede">Every night the warehouse runs <span id="k-tests"></span> data-quality tests: not null, unique, freshness, volume, relationships. A year of that is <span id="k-total"></span> results, and the test log shows them as a list nobody reads. Laid out as a calendar, the year has a pulse, a few scars, and one test that has been shouting on schedule since January.</p>
+
+  <div class="figure" id="cal-fig">
+    <p class="figure-title">Non-passing tests per night, <span id="k-range"></span></p>
+    <p class="figure-sub">One cell per nightly run, weeks left to right, Monday on top. Hover a night for its counts; click (or focus and use the arrow keys) to list what broke. Brackets mark the named incidents.</p>
+    <div class="controls" role="group" aria-label="Measure">
+      <button type="button" data-m="fw" aria-pressed="true">Fails + warns</button>
+      <button type="button" data-m="f" aria-pressed="false">Fails only</button>
+      <button type="button" data-m="nr" aria-pressed="false">Tests not run</button>
+    </div>
+    <div class="cal-legend" id="cal-legend"></div>
+    <div class="cal-wrap" id="cal"></div>
+    <div class="night" id="night" aria-live="polite"></div>
+    <div id="cal-table"></div>
+  </div>
+  <p id="k-worst"></p>
+
+  <h2>Who keeps failing</h2>
+  <p>The calendar counts; it does not name. Unroll it by test instead: one row per test that warned or failed at least once, one tick per bad night, sorted by how often. Two stories stand out before you read a single label.</p>
+  <div class="figure" id="bc-fig">
+    <p class="figure-title">A barcode per test</p>
+    <p class="figure-sub" id="bc-sub"></p>
+    <div class="legend">
+      <span><svg width="10" height="12" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><line x1="5" x2="5" y1="0" y2="12" style="stroke:var(--critical);stroke-width:2"/></svg>Fail (full-height tick)</span>
+      <span><svg width="10" height="12" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><line x1="5" x2="5" y1="5" y2="12" style="stroke:var(--warning);stroke-width:2"/></svg>Warn (short tick)</span>
+      <span><svg width="10" height="12" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><line x1="5" x2="5" y1="9" y2="12" style="stroke:var(--text-muted);stroke-width:2"/></svg>Not run (stub)</span>
+    </div>
+    <div class="controls"><button type="button" id="bc-all" aria-pressed="false"></button></div>
+    <div id="bc"></div>
+    <div id="bc-table"></div>
+  </div>
+
+  <h2>Fix the test, not the data</h2>
+  <p>The General Ledger closes the books in the first three nights of every month and posts about five times its usual journal lines. That is the business working. The volume test compares each night with the median of the same weekday over the prior four weeks, so it sees a quiet Wednesday become a month-end Wednesday and calls it an anomaly, on three tables, three nights running, every month. The fix is a better baseline: compare month-end nights with earlier month-end nights, and keep month-end out of everyone else's baseline. Same thresholds, recomputed below from the loaded row counts.</p>
+  <div class="fix-grid">
+    <div class="figure">
+      <p class="figure-title">Flags raised in a year</p>
+      <p class="figure-sub">GL volume tests on <code>brz_gl_journal</code>, <code>slv_gl_entries</code> and <code>fct_gl</code>; one flag per table per night.</p>
+      <div id="fix-bars"></div>
+      <p class="stat-line" id="fix-stat"></p>
+    </div>
+    <div class="figure">
+      <p class="figure-title">Row count against baseline, month-end nights</p>
+      <p class="figure-sub">Each dot is one table on one night. Gray rings: the current rule. Dark dots: the month-end-aware baseline. Shaded bands are the warn and fail zones; log scale.</p>
+      <div id="fix-dots"></div>
+    </div>
+  </div>
+  <div id="fix-table"></div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul id="notes"></ul>
+  </div>
+  <p class="source" id="source"></p>
+  <p><a href="./">← The engineer's eye</a></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const dq = WH.dq(), runs = WH.runs();
+  const N = dq.length;
+  const fmtLong = d3.utcFormat("%a %-d %b %Y"), fmtShort = d3.utcFormat("%-d %b"), fmtMon = d3.utcFormat("%b"), fmtMonY = d3.utcFormat("%b %Y");
+  const int = Lab.fmt.int;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const setText = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  const OUT_ORDER = { fail: 0, warn: 1, not_run: 2, pass: 3 };
+  const OUT_LABEL = { fail: "fail", warn: "warn", not_run: "not run", pass: "pass" };
+  const OUT_ICON = { fail: "✕", warn: "▲", not_run: "○", pass: "✓" };
+  const ocHtml = (o) => `<span class="oc oc-${o}"><span class="ico" aria-hidden="true">${OUT_ICON[o]}</span>${OUT_LABEL[o]}</span>`;
+
+  setText("k-tests", int(dq[0].results.length));
+  setText("k-total", int(d3.sum(dq, (d) => d.results.length)));
+  setText("k-range", `${fmtMonY(dq[0].day)} to ${fmtMonY(dq[N - 1].day)}`);
+
+  /* ================= 1. calendar ================= */
+  const MEASURES = {
+    fw: { label: "fails + warns", v: (d) => d.fail + d.warn, bins: [1, 3, 5, 8, 12, 16], tok: [100, 200, 300, 400, 600, 700] },
+    f:  { label: "fails", v: (d) => d.fail, bins: [1, 2, 3, 4, 5], tok: [200, 300, 400, 600, 700] },
+    nr: { label: "tests not run", v: (d) => d.notRun, bins: [1, 5, 10, 20, 30], tok: [200, 300, 400, 600, 700] },
+  };
+  let measure = "fw";
+  const colorOf = (v) => {
+    if (!v) return "var(--surface-2)";
+    const m = MEASURES[measure];
+    let k = 0;
+    while (k + 1 < m.bins.length && v >= m.bins[k + 1]) k++;
+    return `var(--seq-${m.tok[k]})`;
+  };
+  function renderLegend() {
+    const m = MEASURES[measure];
+    const items = [{ c: "var(--surface-2)", t: "0" }].concat(m.bins.map((b, i) => {
+      const hi = m.bins[i + 1];
+      return { c: `var(--seq-${m.tok[i]})`, t: hi == null ? b + "+" : hi - 1 === b ? String(b) : `${b}–${hi - 1}` };
+    }));
+    document.getElementById("cal-legend").innerHTML = `<span class="lg-cap">${m.label} per night</span>`
+      + items.map((it) => `<span class="lg-item"><span class="sw" style="background:${it.c}"></span>${it.t}</span>`).join("");
+  }
+
+  const first = dq[0].day;
+  const week0 = d3.utcMonday.floor(first);
+  const weekOf = (day) => d3.utcMonday.count(week0, day);
+  const rowOf = (day) => (day.getUTCDay() + 6) % 7;           // Monday = 0
+  const nWeeks = weekOf(dq[N - 1].day) + 1;
+  const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  let selected = d3.maxIndex(dq, (d) => d.fail + d.warn);
+  let cal = null;   // {cells, sel, place, horizontal, ...}
+
+  // Issues on a night, grouped by outcome and test, worst first.
+  function issuesOf(d) {
+    const bad = d.results.filter((r) => r.outcome !== "pass");
+    return d3.rollups(bad, (v) => v, (r) => r.outcome + "|" + r.test)
+      .map(([k, v]) => ({ outcome: v[0].outcome, test: v[0].test, n: v.length, tables: [...new Set(v.map((r) => r.table))] }))
+      .sort((a, b) => OUT_ORDER[a.outcome] - OUT_ORDER[b.outcome] || b.n - a.n);
+  }
+  const issueLine = (g) => {
+    const t = g.tables.length <= 2 ? g.tables.join(", ") : `${g.tables.slice(0, 2).join(", ")} +${g.tables.length - 2}`;
+    const what = g.outcome === "not_run" ? `${g.n} not run` : `${g.n} ${g.test} ${g.outcome}${g.n > 1 ? "s" : ""}`;
+    return `${ocHtml(g.outcome).replace(OUT_LABEL[g.outcome] + "</span>", "</span>")} ${esc(what)} <span class="tt-k">· ${esc(t)}</span>`;
+  };
+
+  function renderCalendar() {
+    const host = document.getElementById("cal");
+    const w = Math.max(280, Lab.width(host) || 600);
+    const horizontal = Math.floor((w - 74) / nWeeks) >= 11;
+    let cw, ch, ml, mt, gridW, gridH;
+    const incs = WH.incidents;
+    if (horizontal) {
+      ml = 34; mt = 18;
+      cw = ch = Math.min(22, Math.floor((w - ml - 40) / nWeeks));
+      gridW = cw * nWeeks; gridH = ch * 7;
+    } else {
+      ml = 34; mt = 16;
+      cw = Math.min(30, Math.floor((w - ml - 128) / 7)); ch = 13;
+      gridW = cw * 7; gridH = ch * nWeeks;
+    }
+    // map (week, row) grid coords to pixels
+    const P = horizontal ? (wk, r) => [ml + wk * cw, mt + r * ch] : (wk, r) => [ml + r * cw, mt + wk * ch];
+
+    // incident brackets: lanes assigned greedily so labels never collide
+    const brackets = incs.map((inc) => {
+      const a = weekOf(inc.fromDay), b = weekOf(inc.toDay);
+      return { inc, a, b, label: inc.title };
+    });
+    const lanes = [];
+    brackets.forEach((br) => {
+      let s0, s1;
+      if (horizontal) { s0 = P(br.a, 0)[0]; s1 = Math.max(P(br.b + 1, 0)[0], s0 + br.label.length * 6.1 + 8); }
+      else { s0 = P(br.a, 0)[1]; s1 = Math.max(P(br.b + 1, 0)[1], s0 + 26); }
+      let lane = 0;
+      while (lanes[lane] && lanes[lane].some(([x0, x1]) => s0 < x1 && x0 < s1)) lane++;
+      (lanes[lane] = lanes[lane] || []).push([s0, s1]);
+      br.lane = lane;
+    });
+    const nLanes = lanes.length;
+    const avgW = 38;
+    const totalW = horizontal ? w : w;
+    const totalH = horizontal ? mt + gridH + 12 + nLanes * 30 : mt + gridH + 26;
+
+    host.innerHTML = "";
+    const svg = d3.select(host).append("svg").attr("class", "cal-svg")
+      .attr("width", totalW).attr("height", totalH).attr("viewBox", `0 0 ${totalW} ${totalH}`)
+      .attr("tabindex", 0).attr("role", "application")
+      .attr("aria-label", "Calendar of nightly test results. Arrow keys move between nights; the list below updates.");
+
+    // weekday labels
+    DOW.forEach((d, r) => {
+      if (horizontal) {
+        if (r % 2 === 0) svg.append("text").attr("class", "label").attr("x", ml - 6).attr("y", P(0, r)[1] + ch / 2 + 4).attr("text-anchor", "end").text(d);
+      } else {
+        svg.append("text").attr("class", "label").attr("x", P(0, r)[0] + cw / 2).attr("y", mt - 4).attr("text-anchor", "middle").text(d[0]);
+      }
+    });
+
+    // cells
+    const g = svg.append("g");
+    const cells = g.selectAll("rect").data(dq).join("rect")
+      .attr("x", (d) => P(weekOf(d.day), rowOf(d.day))[0] + 0.5)
+      .attr("y", (d) => P(weekOf(d.day), rowOf(d.day))[1] + 0.5)
+      .attr("width", cw - 1).attr("height", ch - 1).attr("rx", 1.5)
+      .on("pointermove", (e, d) => showTip(e, d))
+      .on("pointerleave", () => Lab.tooltip.hide())
+      .on("click", (e, d) => select(dq.indexOf(d)));
+
+    // month outlines and labels
+    const months = d3.utcMonth.range(d3.utcMonth.floor(first), dq[N - 1].day);
+    const mg = svg.append("g");
+    months.forEach((m0) => {
+      const d0 = m0 < first ? first : m0;
+      const lastDay = d3.utcDay.offset(d3.utcMonth.offset(m0, 1), -1);
+      const d1 = lastDay > dq[N - 1].day ? dq[N - 1].day : lastDay;
+      const w0 = weekOf(d0), r0 = rowOf(d0), w1 = weekOf(d1), r1 = rowOf(d1);
+      const pts = [[w0 + 1, r0], [w0, r0], [w0, 7], [w1, 7], [w1, r1 + 1], [w1 + 1, r1 + 1], [w1 + 1, 0], [w0 + 1, 0]].map(([a, b]) => P(a, b));
+      mg.append("path").attr("class", "month-edge").attr("d", "M" + pts.map((p) => p.join(",")).join("L") + "Z");
+      const lab = d0.getUTCMonth() === 0 || d0 === first ? d3.utcFormat("%b %Y")(d0) : fmtMon(d0);
+      const lp = P(w0 + (r0 > 0 ? 1 : 0), 0);
+      if (horizontal) {
+        if (w1 - w0 >= 2 || lab.length < 5) svg.append("text").attr("class", "label").attr("x", lp[0] + 1).attr("y", mt - 6).text(lab);
+      } else {
+        svg.append("text").attr("class", "label").attr("x", ml - 6).attr("y", lp[1] + 10).attr("text-anchor", "end").text(fmtMon(d0));
+      }
+    });
+
+    // per-weekday averages: is there a weekly rhythm?
+    const avgG = svg.append("g");
+    // incidents
+    const ig = svg.append("g").attr("aria-hidden", "true");
+    brackets.forEach((br) => {
+      if (horizontal) {
+        const x0 = P(br.a, 0)[0] + 1, x1 = P(br.b + 1, 0)[0] - 1, y = mt + gridH + 10 + br.lane * 30;
+        ig.append("path").attr("class", "inc-line").attr("d", `M${x0},${y - 5}V${y}H${x1}V${y - 5}`);
+        const lw = br.label.length * 6.1;
+        const over = x0 + lw > totalW - 2;
+        ig.append("text").attr("class", "inc-label").attr("x", over ? Math.min(totalW - 2, x1) : x0).attr("y", y + 14).attr("text-anchor", over ? "end" : "start").text(br.label);
+      } else {
+        const y0 = P(br.a, 0)[1] + 1, y1 = P(br.b + 1, 0)[1] - 1, x = ml + gridW + 8 + br.lane * 0;
+        ig.append("path").attr("class", "inc-line").attr("d", `M${x - 4},${y0}H${x}V${y1}H${x - 4}`);
+        const avail = totalW - x - 7, words = br.label.split(" "), lines = [""];
+        words.forEach((wd) => { const cur = lines[lines.length - 1]; if (cur && (cur + " " + wd).length * 6.1 > avail) lines.push(wd); else lines[lines.length - 1] = (cur + " " + wd).trim(); });
+        const t = ig.append("text").attr("class", "inc-label").attr("x", x + 5).attr("y", y0 + 10);
+        lines.forEach((ln, k) => t.append("tspan").attr("x", x + 5).attr("dy", k ? 13 : 0).text(ln));
+      }
+    });
+    const sel = svg.append("rect").attr("class", "day-sel").attr("width", cw + 1).attr("height", ch + 1).attr("rx", 2);
+
+    svg.on("keydown", (e) => {
+      const step = horizontal ? { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 } : { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+      if (step[e.key] == null) return;
+      e.preventDefault();
+      select(Math.max(0, Math.min(N - 1, selected + step[e.key])));
+    });
+
+    cal = { cells, sel, P, cw, ch, horizontal, avgG, ml, mt, gridW, gridH };
+    paintCalendar();
+  }
+
+  function paintCalendar() {
+    const m = MEASURES[measure];
+    cal.cells.style("fill", (d) => colorOf(m.v(d)))
+      .attr("aria-label", (d) => `${fmtLong(d.day)}: ${m.v(d)} ${m.label}`);
+    const d = dq[selected];
+    const [x, y] = cal.P(weekOf(d.day), rowOf(d.day));
+    cal.sel.attr("x", x - 0.5).attr("y", y - 0.5);
+    // weekday averages
+    const byRow = d3.range(7).map((r) => d3.mean(dq.filter((q) => rowOf(q.day) === r), m.v));
+    cal.avgG.selectAll("*").remove();
+    if (cal.horizontal) {
+      cal.avgG.append("text").attr("class", "label").attr("x", cal.ml + cal.gridW + 6).attr("y", cal.mt - 6).style("fill", "var(--text-muted)").text("avg");
+      byRow.forEach((v, r) => cal.avgG.append("text").attr("class", "label").attr("x", cal.ml + cal.gridW + 6).attr("y", cal.P(0, r)[1] + cal.ch / 2 + 4)
+        .style("font-variant-numeric", "tabular-nums").text(d3.format(".1f")(v)));
+    } else {
+      const y0 = cal.mt + cal.gridH + 16;
+      cal.avgG.append("text").attr("class", "label").attr("x", cal.ml - 6).attr("y", y0).attr("text-anchor", "end").style("fill", "var(--text-muted)").text("avg");
+      byRow.forEach((v, r) => cal.avgG.append("text").attr("class", "label").attr("x", cal.P(0, r)[0] + cal.cw / 2).attr("y", y0).attr("text-anchor", "middle")
+        .style("font-variant-numeric", "tabular-nums").text(d3.format(".1f")(v)));
+    }
+  }
+
+  function showTip(e, d) {
+    const inc = WH.incidentOn(d.day);
+    const iss = issuesOf(d).slice(0, 3);
+    Lab.tooltip.show(e, `<strong>${fmtLong(d.day)}</strong>${inc.length ? `<br><span class="tt-k">${esc(inc.map((i) => i.title).join(", "))}</span>` : ""}<br>`
+      + `${ocHtml("pass")} ${d.pass} &nbsp;${ocHtml("warn")} ${d.warn} &nbsp;${ocHtml("fail")} ${d.fail} &nbsp;${ocHtml("not_run")} ${d.notRun}`
+      + (iss.length ? "<br>" + iss.map(issueLine).join("<br>") : "<br><span class=\"tt-k\">All tests passed</span>"));
+  }
+
+  function select(i) {
+    selected = i;
+    paintCalendar();
+    renderNight();
+  }
+
+  function renderNight() {
+    const d = dq[selected], run = runs[selected];
+    const inc = WH.incidentOn(d.day);
+    const bad = d.results.filter((r) => r.outcome !== "pass")
+      .sort((a, b) => OUT_ORDER[a.outcome] - OUT_ORDER[b.outcome] || WH.order.indexOf(a.table) - WH.order.indexOf(b.table));
+    const sla = run.slaMet ? "SLA met" : "SLA missed";
+    let html = `<h3>Night of ${fmtLong(d.day)}</h3>`
+      + `<p class="meta">Run ${esc(run.status)}, Gold ready ${WH.clock(run.goldEnd)}, ${sla}${run.retries ? `, ${run.retries} retr${run.retries > 1 ? "ies" : "y"}` : ""}.`
+      + (inc.length ? ` <b>${esc(inc[0].title)}.</b> ${esc(inc[0].note)}` : "") + `</p>`
+      + `<div class="counts"><span>${ocHtml("pass")} <b>${d.pass}</b></span><span>${ocHtml("warn")} <b>${d.warn}</b></span><span>${ocHtml("fail")} <b>${d.fail}</b></span><span>${ocHtml("not_run")} <b>${d.notRun}</b></span></div>`;
+    if (!bad.length) html += `<p class="meta">All ${d.pass} tests passed.</p>`;
+    else {
+      html += `<div class="scroll"><table class="lab"><thead><tr><th>Table</th><th>Test</th><th>Column</th><th>Outcome</th><th class="col-note">Note</th></tr></thead><tbody>`
+        + bad.map((r) => `<tr><td class="mono">${esc(r.table)}</td><td>${esc(r.test)}</td><td class="mono">${esc(r.column)}</td><td>${ocHtml(r.outcome)}</td><td class="col-note">${esc(r.note)}</td></tr>`).join("")
+        + `</tbody></table></div>`;
+    }
+    document.getElementById("night").innerHTML = html;
+  }
+
+  document.querySelectorAll("#cal-fig .controls button").forEach((b) => b.addEventListener("click", () => {
+    measure = b.dataset.m;
+    document.querySelectorAll("#cal-fig .controls button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+    renderLegend(); paintCalendar();
+  }));
+
+  Lab.tableView(document.getElementById("cal-table"),
+    [{ key: "date", label: "Night" }, { key: "pass", label: "Pass", align: "r" }, { key: "warn", label: "Warn", align: "r" },
+     { key: "fail", label: "Fail", align: "r" }, { key: "notRun", label: "Not run", align: "r" },
+     { key: "inc", label: "Incident" }],
+    dq.map((d) => ({ date: d.date, pass: d.pass, warn: d.warn, fail: d.fail, notRun: d.notRun, inc: WH.incidentOn(d.day).map((i) => i.title).join(", ") })),
+    "Show the calendar as a table (365 nights)");
+
+  // The worst nights, computed: are they incidents?
+  (function () {
+    const top = d3.sort(dq, (d) => -(d.fail + d.warn)).slice(0, 3);
+    const bf = WH.incidents.find((i) => i.id === "bf");
+    const bfNights = dq.filter((d) => d.day >= bf.fromDay && d.day <= bf.toDay);
+    const bfVol = d3.sum(bfNights, (d) => d.results.filter((r) => r.test === "volume" && r.outcome !== "pass").length);
+    const topVol = d3.sum(top, (d) => d.results.filter((r) => r.test === "volume" && r.outcome !== "pass").length);
+    const topBad = d3.sum(top, (d) => d.fail + d.warn);
+    const inInc = top.filter((d) => WH.incidentOn(d.day).length).length;
+    const span = d3.extent(top, (d) => d.day);
+    const ratios = top.flatMap((d) => d.results.filter((r) => r.test === "volume" && r.outcome !== "pass").map((r) => +(/([\d.]+)x/.exec(r.note) || [0, NaN])[1])).filter((v) => !isNaN(v));
+    const [rlo, rhi] = d3.extent(ratios);
+    document.getElementById("k-worst").innerHTML = `The three worst nights of the year are ${fmtShort(span[0])} to ${fmtShort(span[1])}, and ${inInc ? inInc + " of them fall" : "none of them falls"} inside a named incident. `
+      + `They are the week after Black Friday. Over the Black Friday weekend itself, with order volume up to four times normal, the volume tests raised <b>${bfVol}</b> flags: the warehouse was days old and no test had the two prior same weekdays it needs for a baseline. A week later the spike sat inside the baseline, an ordinary night looked like a collapse, and ${topVol} of the ${topBad} warnings and fails on those three nights are volume tests reporting ${d3.format(".1f")(rlo)} to ${d3.format(".1f")(rhi)} times the median. The test missed the event and alarmed on its shadow.`;
+  })();
+
+  /* ================= 2. barcodes ================= */
+  const keyOf = (r) => r.table + "|" + r.test + "|" + r.column;
+  const series = new Map();
+  dq.forEach((d, i) => d.results.forEach((r) => {
+    if (r.outcome === "pass") return;
+    const k = keyOf(r);
+    if (!series.has(k)) series.set(k, { key: k, table: r.table, test: r.test, column: r.column, marks: [], fail: 0, warn: 0, notRun: 0 });
+    const s = series.get(k);
+    s.marks.push({ i, outcome: r.outcome, note: r.note });
+    if (r.outcome === "fail") s.fail++; else if (r.outcome === "warn") s.warn++; else s.notRun++;
+  }));
+  const rowsAll = [...series.values()].filter((s) => s.fail + s.warn > 0)
+    .sort((a, b) => (b.fail + b.warn) - (a.fail + a.warn) || b.fail - a.fail || d3.ascending(a.key, b.key));
+  const isGL = (s) => s.test === "volume" && /_gl/.test(s.table);
+  const orphans = WH.incidents.find((i) => i.id === "orphans");
+  const isOrphan = (s) => s.test === "relationships" && (s.table === "slv_customers" || s.column === "customer_key");
+  const nOrphanFct = rowsAll.filter((s) => isOrphan(s) && s.table.startsWith("fct_")).length;
+  const glMonths = new Set();
+  rowsAll.filter(isGL).forEach((s) => s.marks.forEach((m) => { if (m.outcome === "fail") glMonths.add(dq[m.i].date.slice(0, 7)); }));
+  const ANN = {
+    A: { test: isGL, title: "Month-end GL volume.", sub: `Fails the 1st to 3rd of every month on all three GL tables. The ledger is fine; the baseline is wrong.`, band: null },
+    B: { test: isOrphan, title: "Orphan CRM accounts.", sub: `slv_customers warns most nights from March to May; ${nOrphanFct} fact customer_key tests echo it. Fixed June 1.`, band: [orphans.fromDay, orphans.toDay] },
+  };
+  const DEFAULT_ROWS = 22;
+  let showAll = false;
+  const allBtn = document.getElementById("bc-all");
+  const setAllLabel = () => { allBtn.textContent = showAll ? `Show top ${DEFAULT_ROWS}` : `Show all ${rowsAll.length} tests`; allBtn.setAttribute("aria-pressed", showAll ? "true" : "false"); };
+  allBtn.addEventListener("click", () => { showAll = !showAll; setAllLabel(); renderBarcodes(); });
+  setAllLabel();
+  document.getElementById("bc-sub").textContent = `${rowsAll.length} of ${int(dq[0].results.length)} tests warned or failed at least once in the year. Each row spans ${fmtShort(dq[0].day)} to ${fmtShort(dq[N - 1].day)}; month lines fall on the 1st. Hover a tick for the night, click it to open that night above.`;
+
+  function renderBarcodes() {
+    const host = document.getElementById("bc");
+    const w = Math.max(280, Lab.width(host) || 600);
+    const wide = w >= 720;
+    const rows = showAll ? rowsAll : rowsAll.slice(0, DEFAULT_ROWS);
+    const labW = wide ? 340 : 0, cntW = 64, keyW = 18;
+    const x0 = wide ? labW : keyW, x1 = w - cntW;
+    const rowH = wide ? 17 : 30, tickH = 12, axisH = 18;
+    const x = d3.scaleUtc([dq[0].day, d3.utcDay.offset(dq[N - 1].day, 1)], [x0, x1]);
+    const dayW = (x1 - x0) / N;
+
+    // layout: insert an annotation block before the first member row of each annotation
+    const layout = [];
+    let y = axisH;
+    const seen = {};
+    rows.forEach((s) => {
+      Object.entries(ANN).forEach(([k, a]) => {
+        if (!seen[k] && a.test(s)) {
+          seen[k] = true;
+          // wrap: first line carries the bold title, later lines the rest
+          const avail = w - (wide ? 24 : 22), lines = [];
+          let cur = "", cap = avail - a.title.length * 7.2;
+          a.sub.split(" ").forEach((wd) => {
+            const next = cur ? cur + " " + wd : wd;
+            if (cur && next.length * 6.4 > cap) { lines.push(cur); cur = wd; cap = avail; } else cur = next;
+          });
+          lines.push(cur);
+          layout.push({ note: k, y, lines }); y += 12 + lines.length * 15;
+        }
+      });
+      s.keyTag = Object.keys(ANN).find((k) => ANN[k].test(s)) || null;
+      layout.push({ s, y }); y += rowH;
+    });
+    const H = y + 4;
+
+    host.innerHTML = "";
+    const svg = d3.select(host).append("svg").attr("width", w).attr("height", H).attr("viewBox", `0 0 ${w} ${H}`)
+      .attr("role", "img").attr("aria-label", "One row of ticks per data-quality test that warned or failed, across the year");
+
+    // month gridlines + labels
+    const months = d3.utcMonth.range(d3.utcMonth.ceil(dq[0].day), dq[N - 1].day);
+    svg.append("g").selectAll("line").data(months).join("line").attr("x1", (d) => x(d)).attr("x2", (d) => x(d)).attr("y1", axisH - 4).attr("y2", H)
+      .style("stroke", "var(--grid)");
+    svg.append("g").selectAll("text").data(months.filter((d, i) => wide || w > 520 || i % 2 === 0)).join("text").attr("class", "tick").attr("x", (d) => x(d) + 2).attr("y", axisH - 7)
+      .style("fill", "var(--text-muted)").style("font", "11px var(--sans)").text((d) => d.getUTCMonth() === 0 ? d3.utcFormat("%b %Y")(d) : fmtMon(d));
+    svg.append("text").attr("x", w).attr("y", axisH - 7).attr("text-anchor", "end").attr("class", "label").style("fill", "var(--text-muted)").text("warn + fail");
+
+    const keyGlyph = (g, k, cx, cy) => {
+      g.append("circle").attr("class", "bc-key-ring").attr("cx", cx).attr("cy", cy).attr("r", 6.5);
+      g.append("text").attr("class", "bc-key").attr("x", cx).attr("y", cy + 3.5).attr("text-anchor", "middle").text(k);
+    };
+
+    layout.forEach((L) => {
+      if (L.note) {
+        const a = ANN[L.note], g = svg.append("g");
+        keyGlyph(g, L.note, wide ? 8 : 7, L.y + 14);
+        const tx = g.append("text").attr("x", wide ? 22 : 20).attr("y", L.y + 18);
+        tx.append("tspan").attr("class", "bc-note").style("font-weight", 600).text(a.title + " ");
+        tx.append("tspan").attr("class", "bc-note-sub").text(L.lines[0]);
+        L.lines.slice(1).forEach((ln, k) => g.append("text").attr("class", "bc-note-sub").attr("x", wide ? 22 : 20).attr("y", L.y + 18 + 15 * (k + 1)).text(ln));
+        return;
+      }
+      const s = L.s;
+      const g = svg.append("g").attr("class", "bc-row");
+      const by = wide ? L.y + rowH - 3 : L.y + rowH - 3;   // baseline of ticks
+      const ty = wide ? by - 1 : L.y + 11;                  // label baseline
+      if (s.keyTag && ANN[s.keyTag].band) {
+        const [b0, b1] = ANN[s.keyTag].band;
+        g.append("rect").attr("x", x(b0)).attr("width", x(d3.utcDay.offset(b1, 1)) - x(b0)).attr("y", by - tickH - 1).attr("height", tickH + 1).style("fill", "var(--band-3)");
+      }
+      g.append("line").attr("class", "bc-base").attr("x1", x0).attr("x2", x1).attr("y1", by + 0.5).attr("y2", by + 0.5).style("stroke", "var(--grid)");
+      if (s.keyTag) {
+        const kg = g.append("g");
+        keyGlyph(kg, s.keyTag, wide ? 8 : 7, wide ? by - 5 : ty - 4);
+      }
+      const lab = g.append("text").attr("class", "lab-mono").attr("x", wide ? 20 : (s.keyTag ? 18 : 0)).attr("y", ty);
+      lab.append("tspan").style("fill", "var(--text-primary)").text(s.table);
+      lab.append("tspan").style("fill", "var(--text-muted)").text(` ${s.test}${s.column !== "*" ? "." + s.column : ""}`);
+      g.append("text").attr("class", "label").attr("x", w).attr("y", by - 1).attr("text-anchor", "end").style("font-variant-numeric", "tabular-nums")
+        .text(s.fail + s.warn);
+      const tw = Math.max(1, Math.min(2, dayW * 0.8));
+      g.selectAll("line.t").data(s.marks).join("line").attr("class", "t")
+        .attr("x1", (m) => x(dq[m.i].day) + dayW / 2).attr("x2", (m) => x(dq[m.i].day) + dayW / 2)
+        .attr("y1", (m) => by - (m.outcome === "fail" ? tickH : m.outcome === "warn" ? 7 : 3)).attr("y2", by)
+        .style("stroke", (m) => m.outcome === "fail" ? "var(--critical)" : m.outcome === "warn" ? "var(--warning)" : "var(--text-muted)")
+        .style("stroke-width", tw);
+      g.append("rect").attr("class", "bc-row-hit").attr("x", x0).attr("width", x1 - x0).attr("y", by - tickH - 2).attr("height", tickH + 5)
+        .style("cursor", "pointer")
+        .on("pointermove", (e) => {
+          const px = d3.pointer(e)[0];
+          const near = d3.least(s.marks, (m) => Math.abs(x(dq[m.i].day) + dayW / 2 - px));
+          const dist = near ? Math.abs(x(dq[near.i].day) + dayW / 2 - px) : Infinity;
+          const head = `<strong>${esc(s.table)}</strong> <span class="tt-k">${esc(s.test)} ${esc(s.column)}</span><br>${s.fail} fail, ${s.warn} warn, ${s.notRun} not run`;
+          Lab.tooltip.show(e, dist <= Math.max(4, dayW * 2)
+            ? `${head}<br>${fmtLong(dq[near.i].day)}: ${ocHtml(near.outcome)}${near.note ? "<br>" + esc(near.note) : ""}`
+            : head);
+        })
+        .on("pointerleave", () => Lab.tooltip.hide())
+        .on("click", (e) => {
+          const px = d3.pointer(e)[0];
+          const near = d3.least(s.marks, (m) => Math.abs(x(dq[m.i].day) + dayW / 2 - px));
+          if (!near) return;
+          select(near.i);
+          const fig = document.getElementById("cal-fig");
+          if (fig.scrollIntoView) fig.scrollIntoView({ behavior: Lab.reducedMotion() ? "auto" : "smooth", block: "start" });
+        });
+    });
+  }
+  Lab.tableView(document.getElementById("bc-table"),
+    [{ key: "table", label: "Table" }, { key: "test", label: "Test" }, { key: "column", label: "Column" },
+     { key: "fail", label: "Fail", align: "r" }, { key: "warn", label: "Warn", align: "r" }, { key: "notRun", label: "Not run", align: "r" },
+     { key: "first", label: "First bad night" }, { key: "last", label: "Last bad night" }],
+    rowsAll.map((s) => {
+      const bad = s.marks.filter((m) => m.outcome !== "not_run");
+      return { ...s, first: dq[bad[0].i].date, last: dq[bad[bad.length - 1].i].date };
+    }),
+    `Show all ${rowsAll.length} tests as a table`);
+
+  /* ================= 3. fix the test ================= */
+  const GL = ["brz_gl_journal", "slv_gl_entries", "fct_gl"];
+  const isME = (day) => day.getUTCDate() <= 3;
+  const mIdx = (day) => day.getUTCFullYear() * 12 + day.getUTCMonth();
+  const grade = (ratio) => ratio == null ? null : (ratio > 3 || ratio < 0.33) ? "fail" : (ratio > 1.8 || ratio < 0.55) ? "warn" : "pass";
+  const fix = [];   // one per table x night
+  GL.forEach((t) => {
+    const rows = runs.map((r) => r.tasks.find((k) => k.table === t).rows);
+    runs.forEach((run, i) => {
+      // current rule: same weekday, prior four weeks
+      const pc = [7, 14, 21, 28].map((o) => i - o).filter((j) => j >= 0).map((j) => rows[j]).filter((v) => v > 0);
+      const bc = pc.length >= 2 ? d3.median(pc) : null;
+      // month-end aware: month-end nights against the previous three month-ends; other nights against same weekdays with month-end left out
+      let pa;
+      if (isME(run.day)) pa = runs.map((r, j) => j).filter((j) => j < i && isME(runs[j].day) && mIdx(run.day) - mIdx(runs[j].day) >= 1 && mIdx(run.day) - mIdx(runs[j].day) <= 3).map((j) => rows[j]).filter((v) => v > 0);
+      else pa = [7, 14, 21, 28].map((o) => i - o).filter((j) => j >= 0 && !isME(runs[j].day)).map((j) => rows[j]).filter((v) => v > 0);
+      const ba = pa.length >= 2 ? d3.median(pa) : null;
+      const rc = bc ? rows[i] / bc : null, ra = ba ? rows[i] / ba : null;
+      const logged = dq[i].results.find((r) => r.table === t && r.test === "volume").outcome;
+      fix.push({ table: t, i, day: run.day, rows: rows[i], me: isME(run.day), bc, rc, oc: grade(rc), ba, ra, oa: grade(ra), logged });
+    });
+  });
+  const flaggedC = fix.filter((f) => f.logged === "warn" || f.logged === "fail");
+  const flaggedA = fix.filter((f) => f.oa === "warn" || f.oa === "fail");
+  const mismatch = fix.filter((f) => (f.oc || "pass") !== f.logged).length;   // our recomputation vs the test log
+  const nightsC = new Set(flaggedC.map((f) => f.i)).size, nightsA = new Set(flaggedA.map((f) => f.i)).size;
+  const noBaseME = fix.filter((f) => f.me && f.ba == null);
+
+  function renderFixBars() {
+    const host = document.getElementById("fix-bars");
+    const w = Math.max(240, Lab.width(host) || 320);
+    const data = [{ k: "Current rule", n: flaggedC.length, nights: nightsC }, { k: "Month-end aware", n: flaggedA.length, nights: nightsA }];
+    const lw = 118, rh = 34, H = data.length * rh + 6;
+    const x = d3.scaleLinear([0, d3.max(data, (d) => d.n) || 1], [lw, w - 44]);
+    host.innerHTML = "";
+    const svg = d3.select(host).append("svg").attr("width", w).attr("height", H).attr("viewBox", `0 0 ${w} ${H}`)
+      .attr("role", "img").attr("aria-label", data.map((d) => `${d.k}: ${d.n} flags`).join("; "));
+    svg.append("line").attr("x1", lw).attr("x2", lw).attr("y1", 0).attr("y2", H).style("stroke", "var(--axis)");
+    const g = svg.selectAll("g").data(data).join("g").attr("transform", (d, i) => `translate(0,${i * rh + 4})`);
+    g.append("text").attr("class", "label").attr("x", lw - 8).attr("y", rh / 2 + 2).attr("text-anchor", "end").text((d) => d.k);
+    g.append("rect").attr("x", lw).attr("y", 6).attr("height", rh - 16).attr("width", (d) => Math.max(0, x(d.n) - lw)).style("fill", "var(--text-secondary)");
+    g.append("text").attr("class", "label-strong").attr("x", (d) => x(d.n) + 6).attr("y", rh / 2 + 2).style("font-variant-numeric", "tabular-nums").text((d) => d.n);
+  }
+  document.getElementById("fix-stat").innerHTML = `Current rule: <b>${flaggedC.length}</b> flags on ${nightsC} nights, in ${glMonths.size} of 12 months. Month-end aware: <b>${flaggedA.length}</b>.`
+    + ` ${noBaseME.length ? `The first month-end has no earlier month-end to compare with, so the new rule cannot judge those ${noBaseME.length} table-nights; neither could the old one.` : ""}`
+    + (mismatch ? ` (Recomputation differs from the test log on ${mismatch} table-nights.)` : ` The recomputed current rule matches the test log on all ${int(fix.length)} table-nights.`);
+
+  // episodes: month-end runs per month, plus any other night the current rule flagged (the echo)
+  const episodes = [];
+  d3.groups(fix.filter((f) => f.me || f.logged !== "pass"), (f) => (f.me ? "me" : "echo") + mIdx(f.day))
+    .forEach(([k, v]) => {
+      const days = d3.extent(v, (f) => f.day);
+      episodes.push({ k, echo: k.startsWith("echo"), pts: v, start: days[0], label: `${d3.utcFormat("%b %-d")(days[0])}–${d3.utcFormat("%-d")(days[1])}${k.startsWith("echo") ? " echo" : ""}` });
+    });
+  episodes.sort((a, b) => a.start - b.start);
+
+  function renderFixDots() {
+    const host = document.getElementById("fix-dots");
+    const w = Math.max(280, Lab.width(host) || 600);
+    const lw = 92, rh = 20, mt = 22, H = mt + episodes.length * rh + 26;
+    const x = d3.scaleLog([0.2, 8], [lw, w - 10]).clamp(true);
+    host.innerHTML = "";
+    const svg = d3.select(host).append("svg").attr("width", w).attr("height", H).attr("viewBox", `0 0 ${w} ${H}`)
+      .attr("role", "img").attr("aria-label", "Dot plot of GL row counts as a multiple of the baseline, current rule against month-end-aware rule");
+    const zones = [[0.2, 0.33, "--band-2", "fail"], [0.33, 0.55, "--band-3", "warn"], [1.8, 3, "--band-3", "warn"], [3, 8, "--band-2", "fail"]];
+    zones.forEach(([a, b, tok, lab]) => {
+      svg.append("rect").attr("x", x(a)).attr("width", x(b) - x(a)).attr("y", mt).attr("height", episodes.length * rh).style("fill", `var(${tok})`);
+      svg.append("text").attr("class", "label").attr("x", (x(a) + x(b)) / 2).attr("y", mt - 7).attr("text-anchor", "middle").style("fill", "var(--text-muted)").text(lab);
+    });
+    svg.append("text").attr("class", "label").attr("x", x(1)).attr("y", mt - 7).attr("text-anchor", "middle").style("fill", "var(--text-muted)").text("pass");
+    const ticks = [0.25, 0.5, 1, 2, 4, 8];
+    svg.append("g").attr("class", "axis").attr("transform", `translate(0,${mt + episodes.length * rh})`)
+      .call(d3.axisBottom(x).tickValues(ticks).tickFormat((v) => v + "×").tickSizeOuter(0));
+    svg.append("line").attr("x1", x(1)).attr("x2", x(1)).attr("y1", mt).attr("y2", mt + episodes.length * rh).style("stroke", "var(--axis)");
+    const g = svg.selectAll("g.ep").data(episodes).join("g").attr("class", "ep").attr("transform", (d, i) => `translate(0,${mt + i * rh})`);
+    g.append("line").attr("x1", lw).attr("x2", w - 10).attr("y1", rh).attr("y2", rh).style("stroke", "var(--grid)").style("stroke-opacity", 0.6);
+    g.append("text").attr("class", (d) => d.echo ? "label-strong" : "label").attr("x", lw - 8).attr("y", rh / 2 + 4).attr("text-anchor", "end").text((d) => d.label);
+    const yOff = { brz_gl_journal: -4, slv_gl_entries: 0, fct_gl: 4 };
+    const tipFor = (f) => `<strong>${esc(f.table)}</strong>, ${fmtLong(f.day)}<br>${int(f.rows)} rows<br>`
+      + `<span class="tt-k">Current baseline</span> ${f.bc ? int(f.bc) + " (" + d3.format(".1f")(f.rc) + "×), " + ocHtml(f.oc) : "none"}<br>`
+      + `<span class="tt-k">Month-end aware</span> ${f.ba ? int(f.ba) + " (" + d3.format(".1f")(f.ra) + "×), " + ocHtml(f.oa) : "none"}`;
+    g.each(function (ep) {
+      const gg = d3.select(this);
+      const pts = ep.pts;
+      gg.selectAll("circle.c").data(pts.filter((f) => f.rc != null)).join("circle").attr("class", "c")
+        .attr("cx", (f) => x(f.rc)).attr("cy", (f) => rh / 2 + yOff[f.table]).attr("r", 3)
+        .style("fill", "var(--surface-1)").style("stroke", "var(--text-muted)").style("stroke-width", 1.2)
+        .on("pointermove", (e, f) => Lab.tooltip.show(e, tipFor(f))).on("pointerleave", () => Lab.tooltip.hide());
+      gg.selectAll("circle.a").data(pts.filter((f) => f.ra != null)).join("circle").attr("class", "a")
+        .attr("cx", (f) => x(f.ra)).attr("cy", (f) => rh / 2 + yOff[f.table]).attr("r", 2.6)
+        .style("fill", "var(--text-primary)")
+        .on("pointermove", (e, f) => Lab.tooltip.show(e, tipFor(f))).on("pointerleave", () => Lab.tooltip.hide());
+      const noC = pts.every((f) => f.rc == null), noA = pts.every((f) => f.ra == null);
+      if (noC && noA) gg.append("text").attr("class", "label").attr("x", x(1) + 8).attr("y", rh / 2 + 4).style("fill", "var(--text-muted)").text("no baseline yet under either rule");
+    });
+  }
+  Lab.tableView(document.getElementById("fix-table"),
+    [{ key: "date", label: "Night" }, { key: "table", label: "Table" }, { key: "rows", label: "Rows", align: "r", format: int },
+     { key: "bc", label: "Current baseline", align: "r", format: (v) => v ? int(v) : "none" },
+     { key: "rc", label: "Ratio", align: "r", format: (v) => v ? d3.format(".2f")(v) : "" },
+     { key: "logged", label: "Logged outcome", format: (v) => OUT_LABEL[v] },
+     { key: "ba", label: "Month-end baseline", align: "r", format: (v) => v ? int(v) : "none" },
+     { key: "ra", label: "Ratio", align: "r", format: (v) => v ? d3.format(".2f")(v) : "" },
+     { key: "oa", label: "New outcome", format: (v) => v ? OUT_LABEL[v] : "not judged" }],
+    episodes.flatMap((ep) => ep.pts).map((f) => ({ ...f, date: WH.fmtDay(f.day) })),
+    "Show the GL month-end and echo nights as a table");
+
+  /* ================= notes + source ================= */
+  (function () {
+    const fw = MEASURES.fw.v;
+    const byRow = d3.range(7).map((r) => d3.mean(dq.filter((q) => rowOf(q.day) === r), fw));
+    const [lo, hi] = d3.extent(byRow);
+    const meFails = d3.mean(dq.filter((d) => isME(d.day)), (d) => d.fail), otherFails = d3.mean(dq.filter((d) => !isME(d.day)), (d) => d.fail);
+    const uom = WH.incidents.find((i) => i.id === "uom");
+    const uomNr = d3.max(dq.filter((d) => d.day >= uom.fromDay && d.day <= uom.toDay), (d) => d.notRun);
+    const glPerMonth = d3.median([...d3.rollup(flaggedC.filter((f) => f.logged === "fail"), (v) => v.length, (f) => mIdx(f.day)).values()]);
+    const items = [
+      `<strong>The month shows; the week barely does.</strong> Switch to fails only and the first three nights of every month go dark: ${d3.format(".1f")(meFails)} fails a night against ${d3.format(".1f")(otherFails)} on the rest. The weekday averages only run from ${d3.format(".1f")(lo)} to ${d3.format(".1f")(hi)}, because each volume test compares a Monday with Mondays and the weekend dip in orders never trips it. A flat row is the rule working.`,
+      `<strong>What it hides is lineage.</strong> A cell is a count, and counts double-book. One fault in Bronze shows up again in Silver and Gold, so the GL month-end is one cause scored three times a night, and the ERP rename is one renamed column scored as ${uomNr} tests not run. "Not run" is also not a failure: it is the absence of evidence, and a pale cell on a night nothing ran is a lie of omission.`,
+      `<strong>Alert fatigue is a design flaw, not a people flaw.</strong> The GL volume test failed in ${glMonths.size} months out of 12, ${glPerMonth} table-nights a month, on schedule. A test that cries wolf every month trains people to scroll past the red, and the night the ledger really doubles on the 2nd, nobody looks. Recalibrate it or delete it; leaving it red is the worst of the three.`,
+      `<strong>Baselines need a cold start and an immune system.</strong> The volume test was blind for Black Friday because it had no history, then flagged the following week because the spike was in its history. A median of two is not robust. Exclude known incidents and calendar effects from the baseline, and say "not judged" instead of "pass" when there is no baseline.`,
+      `<strong>The pushback.</strong> A calendar of failure counts rewards deleting tests: fewer tests, paler calendar. The prettiest year belongs to the team that tests nothing. Put coverage next to it, tests per table and how many ran, or the chart will be gamed by the first person it embarrasses.`,
+    ];
+    document.getElementById("notes").innerHTML = items.map((t) => `<li>${t}</li>`).join("");
+    document.getElementById("source").textContent = "Source: " + WH.source + " Tests per table from WH.testsFor(); nightly outcomes from WH.dq(); the month-end-aware rule is recomputed in this page from the loaded row counts in WH.runs(), using the same warn (1.8× or 0.55×) and fail (3× or 0.33×) thresholds as the current rule.";
+  })();
+
+  renderLegend();
+  renderNight();
+  Lab.responsive(() => { renderCalendar(); renderBarcodes(); renderFixBars(); renderFixDots(); });
+})();
+</script>
+</body>
+</html>

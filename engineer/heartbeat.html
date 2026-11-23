@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The nightly heartbeat · Data Viz Lab</title>
+<meta name="description" content="A year of nightly warehouse loads read the way an on-call engineer reads them: every Gold finish time on one strip, one night as a task Gantt, and where the night's minutes actually go.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="warehouse.js"></script>
+<style>
+  .hb-focus { outline: none; border-radius: 4px; touch-action: manipulation; }
+  .hb-focus:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  .hb-legend .mk { display: inline-block; width: 14px; text-align: center; margin-right: 4px; font-weight: 700; }
+  .hb-legend .ln { display: inline-block; width: 18px; height: 0; vertical-align: 3px; margin-right: 6px; border-top: 1px solid var(--text-muted); }
+  .hb-legend .ln.dot { border-top-style: dotted; border-top-width: 2px; }
+  .hb-legend .ln.band { height: 8px; vertical-align: -1px; border: none; background: var(--band-2); }
+  .hb-legend .ln.med { border-top: 1.5px solid var(--text-primary); }
+  .hb-legend .ln.dep { width: 1px; height: 11px; vertical-align: -1px; border: none; border-left: 1px solid var(--text-muted); margin: 0 10px 0 6px; }
+  .hb-legend .bx { display: inline-block; width: 14px; height: 8px; margin-right: 6px; vertical-align: 0; border: 1.5px solid var(--text-primary); background: var(--text-secondary); border-radius: 1px; }
+  .hb-readout { font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 0.92rem; margin: 0 0 10px; min-height: 1.5em; }
+  .hb-readout b { color: var(--text-primary); font-weight: 600; }
+  .hb-hint { font-size: 0.85rem; color: var(--text-muted); margin: 6px 0 0; }
+  .tname { font: 11px var(--mono); fill: var(--text-secondary); }
+  .tname.crit { fill: var(--text-primary); font-weight: 700; }
+  .layer-h { font: 600 11px var(--sans); fill: var(--text-primary); text-transform: uppercase; letter-spacing: 0.06em; }
+  .row-hit { fill: transparent; }
+  .row-hit:hover { fill: var(--surface-2); }
+  .stat-t { font: 11px var(--sans); fill: var(--text-secondary); }
+  .ref-t { font: 11px var(--sans); fill: var(--text-muted); }
+  .inc-t { font: 11px var(--sans); fill: var(--text-secondary); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/" aria-current="true">Engineer's eye</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">The engineer's eye</p>
+  <h1>The nightly heartbeat</h1>
+  <p class="lede">Everyone builds the dashboard that says whether last night succeeded. Almost nobody looks at a year of nights at once, which is where the slow creep and the incidents live. This warehouse met its 06:00 SLA on <b id="k-met"></b> of <span id="k-n"></span> nights. The misses come in two kinds that one SLA flag lumps together: <b id="k-late"></b> nights Gold was late, and <b id="k-broke"></b> nights it was on time and incomplete.</p>
+
+  <h2>A year in one strip</h2>
+  <div class="figure" id="f1">
+    <p class="figure-title">When Gold finished, every night for a year</p>
+    <p class="figure-sub">One mark per nightly run. Later is higher. The band is the middle half of a centered four-week window, the line its median. Click a night, or focus the chart and use the arrow keys, to open it below.</p>
+    <div class="legend hb-legend" id="f1-legend"></div>
+    <div id="strip" class="hb-focus" tabindex="0" role="group" aria-label="Year of nightly Gold finish times. Left and right arrows move the selected night; Shift moves a week; Home and End jump to the ends."></div>
+    <p class="hb-hint" id="f1-status" aria-live="polite"></p>
+  </div>
+
+  <h2>One night, task by task</h2>
+  <div class="figure" id="f2">
+    <p class="figure-title">The selected run as a Gantt chart</p>
+    <p class="figure-sub">All 42 tables, grouped by layer. Bronze bars wear their source system's color; Silver and Gold are neutral. Hairlines before a bar are time the table was waiting, and why. The outlined chain is the critical path: the tasks that set the finish.</p>
+    <div class="controls" id="f2-buttons" role="group" aria-label="Jump to a night"></div>
+    <p class="hb-readout" id="f2-readout" aria-live="polite"></p>
+    <div class="legend hb-legend" id="f2-legend"></div>
+    <div id="gantt"></div>
+    <div id="f2-table"></div>
+  </div>
+
+  <h2>Where the night goes</h2>
+  <div class="figure" id="f3">
+    <p class="figure-title">The critical path of every night, split three ways</p>
+    <p class="figure-sub">Minutes from 01:00 to the Gold finish, walked back along the critical path. Each night's three bars add up to its run. Waiting on a dependency is not a fourth row: along the path it is simply the upstream table's running time. Same scale in all three rows.</p>
+    <div id="mult"></div>
+    <p class="try" id="f3-read" style="color: var(--text-secondary); font-size: 0.95rem; margin: 0.8rem 0 0;"></p>
+  </div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li><strong>The strip has two ribbons, not one.</strong> Sunday and Monday runs load a weekend's business and finish around <span id="n-wkend"></span>, against <span id="n-wkday"></span> the rest of the week. Average them and you get a typical night that never happens. Under both ribbons the clean nights crept from <span id="n-creep0"></span> to <span id="n-creep1"></span> in a year: no alert fires for that.</li>
+      <li><strong>A finish time cannot tell a skipped table from a fast one.</strong> The first ERP rename night finished at <span id="n-uom"></span>, earlier than the median night, because nothing downstream of items ran. Plot finish time without status and February's worst night reads as a good one. That is why the broken nights wear a different mark, not a different shade.</li>
+      <li><strong>Two tables own the night.</strong> <code>fct_inventory_daily</code> or <code>fct_web_sessions</code> finished last on <span id="n-own"></span> nights. Tuning anything else moves the Gantt, not the SLA.</li>
+      <li><strong>The queue is not the problem it looks like.</strong> Summed over all 42 tasks, a median night holds <span id="n-qall"></span> of task time queued for one of four slots. Only <span id="n-qcrit"></span> of that sits on the critical path. More capacity would empty the queue and barely move 06:00, except in the throttled fortnight, when capacity was the incident.</li>
+      <li><strong>Against all of this:</strong> at 4 a.m. the on-call engineer needs one bit, did it land, and a pager delivers it fine. This view is for the Monday after, when somebody asks why 06:00 keeps getting closer and the run history is the only witness.</li>
+    </ul>
+  </div>
+  <p class="source" id="src"></p>
+  <p><a href="./">← The engineer's eye</a></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const runs = WH.runs();
+  const N = runs.length;
+  const SLA = WH.slaMinutes, START = WH.runStartMinutes;
+  const clock = WH.clock;
+  const fmtDate = d3.utcFormat("%a %-d %b %Y");
+  const fmtShort = d3.utcFormat("%-d %b");
+  const dur = (m) => { m = Math.round(m); const h = Math.floor(m / 60), r = m % 60; return h ? `${h}h ${String(r).padStart(2, "0")}m` : `${r} min`; };
+  const $ = (id) => document.getElementById(id);
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  const srcName = Object.fromEntries(WH.sources.map((s) => [s.id, s.name]));
+  const SHORT = { bf: "Black Friday", uom: "ERP rename", throttle: "Throttling", bots: "Bot traffic", crmapi: "CRM rate limits" };
+  const STRIP_INC = WH.incidents.filter((i) => SHORT[i.id]);
+
+  /* ---------- per-night derived facts ---------- */
+  // Critical path followed through slot waits, so that running + slot + source = Gold finish - 01:00.
+  function chainOf(run) {
+    const by = Object.fromEntries(run.tasks.map((k) => [k.table, k]));
+    const path = WH.criticalPath(run).slice();
+    let cur = by[path[path.length - 1]];
+    const o = { run: 0, slot: 0, source: 0 };
+    path.slice(0, -1).forEach((id) => { const k = by[id]; o.run += k.end - k.start; o.slot += k.start - k.readyAt; });
+    while (cur) {
+      o.run += cur.end - cur.start; o.slot += cur.start - cur.readyAt;
+      const r = cur.readyAt;
+      if (r <= START + 0.01) break;
+      if (cur.arrival != null && Math.abs(cur.arrival - r) < 0.01) { o.source += r - START; break; }
+      const dep = WH.byId[cur.table].deps.map((d) => by[d]).find((k) => k.end != null && Math.abs(k.end - r) < 0.01);
+      if (!dep) break;
+      path.push(dep.table); cur = dep;
+    }
+    o.path = path;
+    return o;
+  }
+  const info = runs.map((r) => {
+    const c = chainOf(r);
+    return { run: r, i: r.index, chain: c, late: r.goldEnd > SLA, broke: r.broken > 0,
+      queueAll: d3.sum(r.tasks, (k) => (k.start != null ? k.start - k.readyAt : 0)),
+      failed: r.tasks.filter((k) => k.status === "failed").map((k) => k.table) };
+  });
+
+  /* ---------- prose numbers, computed ---------- */
+  set("k-met", runs.filter((r) => r.slaMet).length);
+  set("k-n", N);
+  set("k-late", info.filter((d) => d.late).length);
+  set("k-broke", info.filter((d) => d.broke && !d.late).length);
+  const clean = runs.filter((r) => r.status === "succeeded" && !r.incidents.length);
+  const wk = (r) => { const g = r.day.getUTCDay(); return g === 0 || g === 1; };
+  set("n-wkend", clock(d3.median(clean.filter(wk), (r) => r.goldEnd)));
+  set("n-wkday", clock(d3.median(clean.filter((r) => !wk(r)), (r) => r.goldEnd)));
+  set("n-creep0", clock(d3.median(clean.slice(0, 60), (r) => r.goldEnd)));
+  set("n-creep1", clock(d3.median(clean.slice(-60), (r) => r.goldEnd)));
+  const uom1 = runs.find((r) => r.incidents.some((i) => i.id === "uom"));
+  set("n-uom", clock(uom1.goldEnd));
+  set("n-own", info.filter((d) => ["fct_inventory_daily", "fct_web_sessions"].includes(d.chain.path[0])).length + " of " + N);
+  set("n-qall", dur(d3.median(info, (d) => d.queueAll)));
+  set("n-qcrit", dur(d3.median(info, (d) => d.chain.slot)));
+  set("src", "Source: " + WH.source);
+
+  /* ---------- presets for figure 2 ---------- */
+  const byFinish = [...runs].sort((a, b) => a.goldEnd - b.goldEnd);
+  const misses = runs.filter((r) => r.goldEnd > SLA);
+  const incRuns = (id) => info.filter((d) => d.run.incidents.some((x) => x.id === id));
+  const PRESETS = [
+    { id: "worst", label: "Worst SLA miss", i: d3.greatest(misses, (r) => r.goldEnd).index },
+    { id: "typical", label: "Typical night", i: byFinish[Math.floor(N / 2)].index },
+    { id: "throttle", label: "Throttled fortnight", i: d3.greatest(incRuns("throttle"), (d) => d.run.goldEnd).i },
+    { id: "uom", label: "ERP rename", i: uom1.index },
+    { id: "crm", label: "CRM late", i: d3.greatest(incRuns("crmapi"), (d) => d.chain.source).i },
+  ];
+  let sel = PRESETS[0].i;
+
+  const btnHost = $("f2-buttons");
+  PRESETS.forEach((p) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = p.label; b.dataset.i = p.i;
+    b.addEventListener("click", () => select(p.i));
+    btnHost.appendChild(b);
+  });
+
+  /* ---------- legends ---------- */
+  $("f1-legend").innerHTML =
+    `<span><span class="mk" style="color: var(--text-secondary)">●</span>Gold complete by 06:00</span>` +
+    `<span><span class="mk" style="color: var(--serious)">●</span>Late: Gold after 06:00</span>` +
+    `<span><span class="mk" style="color: var(--critical)">✕</span>Broke: tables did not load</span>` +
+    `<span><span class="ln band"></span>Middle half, four weeks</span>` +
+    `<span><span class="ln med"></span>Median</span>`;
+  $("f2-legend").innerHTML =
+    WH.sources.map((s) => `<span><span class="swatch" style="background: ${WH.sourceColor(s.id)}"></span>${s.name}</span>`).join("") +
+    `<span><span class="swatch" style="background: var(--text-secondary)"></span>Silver and Gold</span>` +
+    `<span><span class="bx"></span>Critical path</span>` +
+    `<span><span class="ln dot"></span>Waited for its source</span>` +
+    `<span><span class="ln"></span>Waited for a slot</span>` +
+    `<span><span class="ln dep"></span>Started when its last input finished</span>` +
+    `<span><span class="mk" style="color: var(--warning)">▲</span>Retried</span>` +
+    `<span><span class="mk" style="color: var(--critical)">✕</span>Failed or skipped</span>`;
+
+  /* ---------- shared x for figures 1 and 3 ---------- */
+  const day0 = runs[0].day, DAY = 864e5;
+  const half = (d) => new Date(+d - DAY / 2);
+  let X = null;
+  const xi = (i) => X(new Date(+day0 + i * DAY));
+  const idxAt = (px, sc) => Math.max(0, Math.min(N - 1, Math.round((+(sc || X).invert(px) - +day0) / DAY)));
+  const monthTicks = d3.utcMonth.range(d3.utcMonth.ceil(day0), runs[N - 1].day);
+  const monthFmt = (d) => (d.getUTCMonth() === 0 ? d3.utcFormat("%b %Y")(d) : d3.utcFormat("%b")(d));
+
+  /* ---------- rolling band (centered 29-night window) ---------- */
+  const band = runs.map((r, i) => {
+    const w = runs.slice(Math.max(0, i - 14), Math.min(N, i + 15)).map((x) => x.goldEnd).sort(d3.ascending);
+    return { i, q1: d3.quantileSorted(w, 0.25), med: d3.quantileSorted(w, 0.5), q3: d3.quantileSorted(w, 0.75) };
+  });
+
+  function incidentLabels(svg, top, plotL, plotR, yTop, yBot, withLabels) {
+    const g = svg.append("g");
+    const levels = [];
+    STRIP_INC.forEach((inc) => {
+      const a = X(half(inc.fromDay)), b = X(new Date(+inc.toDay + DAY / 2));
+      g.append("rect").attr("x", a).attr("width", Math.max(1.5, b - a)).attr("y", yTop).attr("height", yBot - yTop)
+        .style("fill", "var(--surface-2)");
+      if (!withLabels) return;
+      const text = SHORT[inc.id], tw = text.length * 6.1 + 4;
+      const anchorEnd = a + tw > plotR;
+      const x0 = anchorEnd ? b - tw : a, x1 = anchorEnd ? b : a + tw;
+      let lv = 0;
+      while (levels[lv] != null && levels[lv] > x0 - 6) lv++;
+      levels[lv] = x1;
+      const ty = top + 11 + lv * 13;
+      g.append("line").attr("x1", anchorEnd ? b : a).attr("x2", anchorEnd ? b : a).attr("y1", ty + 2).attr("y2", yTop)
+        .style("stroke", "var(--axis)").style("stroke-width", 1);
+      g.append("text").attr("class", "inc-t").attr("x", anchorEnd ? b - 3 : a + 3).attr("y", ty)
+        .attr("text-anchor", anchorEnd ? "end" : "start").text(text);
+    });
+    return levels.length;
+  }
+
+  /* ---------- figure 1: the strip ---------- */
+  const strip = d3.select("#strip");
+  let f1 = {};
+  function drawStrip() {
+    const el = $("strip");
+    const w = Math.max(260, Lab.width($("f1")) || 900);
+    const narrow = w < 560;
+    const m = { t: narrow ? 52 : 40, r: narrow ? 8 : 74, b: 26, l: 42 };
+    const h = Math.round(Math.max(260, Math.min(380, w * 0.36))) + m.t;
+    X = d3.scaleUtc([half(day0), new Date(+runs[N - 1].day + DAY / 2)], [m.l, w - m.r]);
+    const Y = d3.scaleLinear([60, 540], [h - m.b, m.t]);
+    strip.selectAll("*").remove();
+    const svg = strip.append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`)
+      .attr("role", "img").attr("aria-label", `Gold finish time for each of ${N} nightly runs, with the 06:00 SLA line and incidents marked`);
+    const hrs = d3.range(60, 541, 60);
+    svg.append("g").attr("class", "grid").attr("transform", `translate(${m.l},0)`)
+      .call(d3.axisLeft(Y).tickValues(hrs).tickSize(-(w - m.l - m.r)).tickFormat(""));
+    incidentLabels(svg, 0, m.l, w - m.r, m.t, h - m.b, true);
+    svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`)
+      .call(d3.axisLeft(Y).tickValues(hrs.filter((v, k) => !narrow || k % 2 === 0)).tickFormat(clock).tickSize(0).tickPadding(6))
+      .select(".domain").remove();
+    svg.append("g").attr("class", "axis").attr("transform", `translate(0,${h - m.b})`)
+      .call(d3.axisBottom(X).tickValues(monthTicks.filter((d, k) => !narrow || k % 2 === 0)).tickFormat(monthFmt).tickSizeOuter(0));
+
+    // band + median
+    const area = d3.area().x((d) => xi(d.i)).y0((d) => Y(d.q1)).y1((d) => Y(d.q3)).curve(d3.curveMonotoneX);
+    svg.append("path").datum(band).attr("d", area).style("fill", "var(--band-2)");
+    svg.append("path").datum(band).attr("d", d3.line().x((d) => xi(d.i)).y((d) => Y(d.med)).curve(d3.curveMonotoneX))
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1.25).style("stroke-opacity", 0.7);
+
+    // SLA
+    svg.append("line").attr("x1", m.l).attr("x2", w - m.r).attr("y1", Y(SLA)).attr("y2", Y(SLA))
+      .style("stroke", "var(--text-primary)").style("stroke-width", 1).style("stroke-dasharray", "4 3");
+    svg.append("text").attr("class", "label-strong").attr("x", narrow ? m.l + 4 : w - m.r + 6).attr("y", Y(SLA) + (narrow ? -5 : 4))
+      .text("SLA 06:00");
+    if (!narrow) {
+      const last = band[N - 1];
+      svg.append("text").attr("class", "label").attr("x", w - m.r + 6).attr("y", Y(last.med) + 4).text("median");
+    }
+
+    // nights
+    const ok = info.filter((d) => !d.broke && !d.late), late = info.filter((d) => d.late && !d.broke), broke = info.filter((d) => d.broke);
+    const r = narrow ? 1.4 : 1.8;
+    svg.append("g").selectAll("circle").data(ok).join("circle")
+      .attr("cx", (d) => xi(d.i)).attr("cy", (d) => Y(d.run.goldEnd)).attr("r", r).style("fill", "var(--text-secondary)").style("fill-opacity", 0.75);
+    svg.append("g").selectAll("circle").data(late).join("circle")
+      .attr("cx", (d) => xi(d.i)).attr("cy", (d) => Y(d.run.goldEnd)).attr("r", r + 0.9).style("fill", "var(--serious)");
+    const xs = 3.2;
+    svg.append("g").selectAll("path").data(broke).join("path")
+      .attr("d", (d) => { const cx = xi(d.i), cy = Y(d.run.goldEnd); return `M${cx - xs},${cy - xs}L${cx + xs},${cy + xs}M${cx - xs},${cy + xs}L${cx + xs},${cy - xs}`; })
+      .style("stroke", "var(--critical)").style("stroke-width", 1.6).style("fill", "none");
+
+    // selection + hover
+    const selLine = svg.append("line").attr("y1", m.t).attr("y2", h - m.b).style("stroke", "var(--text-primary)").style("stroke-width", 1);
+    const selRing = svg.append("circle").attr("r", 5.5).style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1.5);
+    const hovRing = svg.append("circle").attr("r", 4.5).style("fill", "none").style("stroke", "var(--text-muted)").style("stroke-width", 1).style("display", "none");
+    svg.append("rect").attr("x", m.l).attr("y", m.t).attr("width", w - m.l - m.r).attr("height", h - m.t - m.b)
+      .style("fill", "transparent").style("cursor", "pointer")
+      .on("pointermove", (e) => {
+        const i = idxAt(d3.pointer(e)[0]);
+        hovRing.attr("cx", xi(i)).attr("cy", Y(runs[i].goldEnd)).style("display", null);
+        Lab.tooltip.show(e, nightTip(info[i]));
+      })
+      .on("pointerleave", () => { hovRing.style("display", "none"); Lab.tooltip.hide(); })
+      .on("click", (e) => { select(idxAt(d3.pointer(e)[0])); el.focus({ preventScroll: true }); });
+    f1 = { selLine, selRing, Y };
+    paintStripSel();
+  }
+  function paintStripSel() {
+    if (!f1.selLine) return;
+    const x = xi(sel);
+    f1.selLine.attr("x1", x).attr("x2", x);
+    f1.selRing.attr("cx", x).attr("cy", f1.Y(runs[sel].goldEnd));
+  }
+  function verdict(d) {
+    const r = d.run;
+    if (d.broke) return `<span style="color: var(--critical)">✕</span> Broke: ${r.broken} table${r.broken > 1 ? "s" : ""} did not load`;
+    if (d.late) return `<span style="color: var(--serious)">●</span> Late by ${dur(r.goldEnd - SLA)}`;
+    return `On time, ${dur(SLA - r.goldEnd)} to spare`;
+  }
+  function nightTip(d) {
+    const r = d.run;
+    return `<strong>${fmtDate(r.day)}</strong><br>` +
+      `<span class="tt-k">Gold finished</span> ${clock(r.goldEnd)}<br>${verdict(d)}<br>` +
+      `<span class="tt-k">Retries</span> ${r.retries} · <span class="tt-k">Broken tables</span> ${r.broken}` +
+      (d.failed.length ? `<br><span class="tt-k">Failed</span> ${d.failed.join(", ")}` : "") +
+      (r.incidents.length ? `<br><span class="tt-k">Incident</span> ${r.incidents.map((i) => i.title).join("; ")}` : "");
+  }
+  $("strip").addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 7 : 1;
+    let i = sel;
+    if (e.key === "ArrowLeft") i -= step; else if (e.key === "ArrowRight") i += step;
+    else if (e.key === "Home") i = 0; else if (e.key === "End") i = N - 1; else return;
+    e.preventDefault();
+    select(Math.max(0, Math.min(N - 1, i)));
+  });
+
+  Lab.tableView($("f1"),
+    [{ key: "date", label: "Run date" }, { key: "gold", label: "Gold finished", align: "r" }, { key: "status", label: "Status" },
+     { key: "retries", label: "Retries", align: "r" }, { key: "broken", label: "Broken tables", align: "r" }, { key: "inc", label: "Incident" }],
+    info.map((d) => ({ date: d.run.date, gold: clock(d.run.goldEnd), status: d.broke ? "broke" : d.late ? "late" : "on time",
+      retries: d.run.retries, broken: d.run.broken, inc: d.run.incidents.map((i) => i.title).join("; ") })),
+    `Show all ${N} nights as a table`);
+
+  /* ---------- figure 2: the Gantt ---------- */
+  const ROWS = WH.layers.map((L) => ({ layer: L, tables: WH.tables.filter((t) => t.layer === L).map((t) => t.id) }));
+  const LAYER_NAME = { bronze: "Bronze", silver: "Silver", gold: "Gold" };
+  const STATUS_TEXT = { succeeded: "succeeded", retried: "succeeded on retry", failed: "failed", upstream_failed: "skipped, upstream failed", no_new_file: "no new file" };
+  const WAIT_TEXT = { source: "its source", dependency: "an upstream table", slot: "a free slot" };
+
+  function waitLine(k) {
+    if (k.start == null) return "never started";
+    const parts = [];
+    if (k.arrival != null && k.arrival > START) parts.push(`source until ${clock(k.arrival)} (${dur(k.arrival - START)})`);
+    if (k.start - k.readyAt > 0.5) parts.push(`a slot for ${dur(k.start - k.readyAt)}`);
+    if (k.waitedOn === "dependency") parts.push(`upstream until ${clock(k.readyAt)}`);
+    return parts.length ? parts.join("; ") : "nothing";
+  }
+  function taskTip(k, crit) {
+    const t = WH.byId[k.table];
+    return `<strong>${k.table}</strong>${crit ? ' <span class="tt-k">(critical path)</span>' : ""}<br>` +
+      `<span class="tt-k">${LAYER_NAME[k.layer]}${t.source ? " · " + srcName[t.source] : ""}</span><br>` +
+      (k.start != null ? `<span class="tt-k">Ran</span> ${clock(k.start)} to ${clock(k.end)}, ${dur(k.minutes)}<br>` : "") +
+      `<span class="tt-k">Rows</span> ${WH.fmtRows(k.rows)}<br>` +
+      `<span class="tt-k">Status</span> ${STATUS_TEXT[k.status]}${k.attempts > 1 ? ` (${k.attempts} attempts)` : ""}<br>` +
+      `<span class="tt-k">Waited for</span> ${waitLine(k)}`;
+  }
+
+  function drawGantt() {
+    const host = d3.select("#gantt");
+    const w = Math.max(260, Lab.width($("f2")) || 900);
+    const narrow = w < 560;
+    const run = runs[sel], d = info[sel];
+    const by = Object.fromEntries(run.tasks.map((k) => [k.table, k]));
+    const crit = new Set(d.chain.path);
+    const labelW = narrow ? 120 : 168;
+    const m = { t: 30, r: narrow ? 10 : 16, b: 26, l: labelW };
+    const rowH = narrow ? 13 : 14, gapH = 22, barH = narrow ? 7 : 8;
+    const yOf = {};
+    let y = m.t;
+    const heads = [];
+    ROWS.forEach((g) => {
+      heads.push({ layer: g.layer, y: y + 14, n: g.tables.length });
+      y += gapH;
+      g.tables.forEach((id) => { yOf[id] = y + rowH / 2; y += rowH; });
+    });
+    const h = y + m.b;
+    const x = d3.scaleLinear([60, 540], [m.l, w - m.r]);
+    host.selectAll("*").remove();
+    const svg = host.append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`)
+      .attr("role", "img").attr("aria-label", `Gantt chart of the run on ${fmtDate(run.day)}: Gold finished ${clock(run.goldEnd)}`);
+
+    // row hit areas (hover anywhere on a row)
+    const hits = svg.append("g");
+    // grid
+    svg.append("g").attr("class", "grid").attr("transform", `translate(0,${m.t})`)
+      .call(d3.axisTop(x).tickValues(d3.range(60, 541, 60)).tickSize(-(h - m.t - m.b)).tickFormat(""));
+    svg.append("g").attr("class", "axis").attr("transform", `translate(0,${m.t})`)
+      .call(d3.axisTop(x).tickValues(d3.range(60, 541, narrow ? 120 : 60)).tickFormat(clock).tickSize(0).tickPadding(6))
+      .select(".domain").remove();
+    svg.append("g").attr("class", "axis").attr("transform", `translate(0,${h - m.b})`)
+      .call(d3.axisBottom(x).tickValues(d3.range(60, 541, narrow ? 120 : 60)).tickFormat(clock).tickSizeOuter(0));
+
+    // reference lines
+    const ref = (v, strong, dash) => {
+      svg.append("line").attr("x1", x(v)).attr("x2", x(v)).attr("y1", m.t).attr("y2", h - m.b)
+        .style("stroke", strong ? "var(--text-primary)" : "var(--text-muted)").style("stroke-width", 1)
+        .style("stroke-dasharray", dash || null);
+    };
+    ref(START, true);
+    ref(SLA, true, "4 3");
+    ref(run.goldEnd, false, "1 2");
+
+    heads.forEach((hd) => {
+      svg.append("text").attr("class", "layer-h").attr("x", 0).attr("y", hd.y).text(`${LAYER_NAME[hd.layer]} · ${hd.n}`);
+      svg.append("line").attr("x1", 0).attr("x2", w - m.r).attr("y1", hd.y + 5).attr("y2", hd.y + 5).style("stroke", "var(--axis)");
+    });
+    // labels on reference lines, placed in the Bronze header row
+    const hy = heads[0].y;
+    const refLabel = (v, txt, cls, anchor) => svg.append("text").attr("class", cls).attr("x", x(v) + (anchor === "end" ? -4 : 4)).attr("y", hy)
+      .attr("text-anchor", anchor || "start").text(txt);
+    refLabel(SLA, narrow ? "SLA" : "SLA 06:00", "label-strong", run.goldEnd > SLA - 40 && run.goldEnd < SLA ? "end" : "start");
+    const gTxt = narrow ? clock(run.goldEnd) : "Gold " + clock(run.goldEnd);
+    if (Math.abs(run.goldEnd - SLA) > (narrow ? 60 : 40)) refLabel(run.goldEnd, gTxt, "ref-t", run.goldEnd < SLA ? "end" : "start");
+    else svg.append("text").attr("class", "ref-t").attr("x", x(run.goldEnd) + 4).attr("y", h - m.b - 6).text(gTxt);
+
+    const names = svg.append("g"), waits = svg.append("g"), deps = svg.append("g"), bars = svg.append("g"), marks = svg.append("g");
+    const short = (id) => (narrow ? id.replace(/^(brz|slv)_/, "") : id);
+    const plotR = w - m.r;
+    WH.tables.forEach((t) => {
+      const k = by[t.id], cy = yOf[t.id], isC = crit.has(t.id);
+      hits.append("rect").attr("class", "row-hit").attr("x", 0).attr("y", cy - rowH / 2).attr("width", w).attr("height", rowH)
+        .on("pointermove pointerdown", (e) => Lab.tooltip.show(e, taskTip(k, isC))).on("pointerleave", () => Lab.tooltip.hide());
+      names.append("text").attr("class", "tname" + (isC ? " crit" : "")).attr("x", 0).attr("y", cy + 3.5).text(short(t.id))
+        .style("font-size", narrow ? "10px" : null)
+        .style("pointer-events", "none");
+      if (k.start == null) {
+        // skipped because something upstream failed
+        marks.append("text").attr("class", "stat-t").attr("x", x(START) + 4).attr("y", cy + 3.5).style("pointer-events", "none")
+          .html(`<tspan style="fill: var(--critical); font-weight: 700">✕</tspan> skipped, upstream failed`);
+        return;
+      }
+      // waits
+      if (k.arrival != null && k.arrival > START + 0.5) {
+        waits.append("line").attr("x1", x(START)).attr("x2", x(k.arrival)).attr("y1", cy).attr("y2", cy)
+          .style("stroke", "var(--text-muted)").style("stroke-width", 1.5).style("stroke-dasharray", "1 2.5").style("pointer-events", "none");
+      }
+      if (k.start - k.readyAt > 0.5) {
+        waits.append("line").attr("x1", x(k.readyAt)).attr("x2", x(k.start)).attr("y1", cy).attr("y2", cy)
+          .style("stroke", isC ? "var(--text-primary)" : "var(--text-muted)").style("stroke-width", 1).style("pointer-events", "none");
+      }
+      if (k.waitedOn === "dependency" || (isC && k.readyAt > START + 0.01 && (k.arrival == null || Math.abs(k.arrival - k.readyAt) > 0.01))) {
+        const up = t.deps.map((id) => by[id]).find((u) => u.end != null && Math.abs(u.end - k.readyAt) < 0.01);
+        if (up) deps.append("line").attr("x1", x(k.readyAt)).attr("x2", x(k.readyAt)).attr("y1", yOf[up.table] + (yOf[up.table] < cy ? barH / 2 : -barH / 2)).attr("y2", cy)
+          .style("stroke", isC ? "var(--text-primary)" : "var(--text-muted)").style("stroke-width", isC ? 1.25 : 0.75).style("pointer-events", "none");
+      }
+      const bx = x(k.start), bw = Math.max(1.5, x(k.end) - x(k.start));
+      const fill = k.status === "failed" ? "var(--critical)" : t.layer === "bronze" ? WH.sourceColor(t.source) : "var(--text-secondary)";
+      bars.append("rect").attr("x", bx).attr("y", cy - barH / 2).attr("width", bw).attr("height", barH).attr("rx", 1)
+        .style("fill", fill).style("fill-opacity", k.status === "no_new_file" ? 0.35 : 1)
+        .style("stroke", isC ? "var(--text-primary)" : "none").style("stroke-width", isC ? 1.5 : 0).style("pointer-events", "none");
+      let note = null, glyph = null;
+      if (k.status === "failed") { glyph = ["✕", "var(--critical)"]; note = `failed after ${k.attempts} tries`; }
+      else if (k.status === "retried") { glyph = ["▲", "var(--warning)"]; note = "retried"; }
+      else if (k.status === "no_new_file") note = "no new file";
+      if (note) {
+        const ex = bx + bw, txt = (glyph ? glyph[0] + " " : "") + note, tw = txt.length * 6 + 8;
+        const left = ex + tw > plotR;
+        marks.append("text").attr("class", "stat-t").attr("x", left ? bx - 4 : ex + 4).attr("y", cy + 3.5)
+          .attr("text-anchor", left ? "end" : "start").style("pointer-events", "none")
+          .html((glyph ? `<tspan style="fill: ${glyph[1]}; font-weight: 700">${glyph[0]}</tspan> ` : "") + note);
+      }
+    });
+    // label the critical path once, beside the final Gold bar
+    const lastId = d.chain.path[0], lk = by[lastId];
+    const lx = x(lk.end) + 6, left = lx + 80 > plotR;
+    svg.append("text").attr("class", "label-strong").attr("x", left ? x(lk.start) - 6 : lx).attr("y", yOf[lastId] + 3.5)
+      .attr("text-anchor", left ? "end" : "start").style("pointer-events", "none").text("critical path");
+  }
+
+  // Readout and table twin for the selected night
+  const tv = Lab.tableView($("f2-table"),
+    [{ key: "table", label: "Table" }, { key: "layer", label: "Layer" }, { key: "source", label: "Source" }, { key: "status", label: "Status" },
+     { key: "start", label: "Start", align: "r" }, { key: "end", label: "End", align: "r" }, { key: "min", label: "Minutes", align: "r" },
+     { key: "rows", label: "Rows", align: "r" }, { key: "wait", label: "Waited for" }, { key: "crit", label: "Critical" }],
+    [], "Show this night as a table");
+  function paintNight() {
+    const run = runs[sel], d = info[sel], c = d.chain;
+    const inc = run.incidents.length ? " · " + run.incidents.map((i) => i.title).join("; ") : "";
+    $("f2-readout").innerHTML = `<b>${fmtDate(run.day)}</b> · Gold finished <b>${clock(run.goldEnd)}</b> · ${verdict(d)} · ` +
+      `${run.retries} retr${run.retries === 1 ? "y" : "ies"}${inc}<br>` +
+      `Critical path: ${c.path.slice().reverse().join(" → ")}. ${dur(c.run)} running, ${dur(c.slot)} queued, ${dur(c.source)} waiting on source.`;
+    const tb = tv.querySelector("tbody");
+    tb.innerHTML = "";
+    const crit = new Set(c.path);
+    run.tasks.slice().sort((a, b) => WH.layers.indexOf(a.layer) - WH.layers.indexOf(b.layer) || WH.tables.indexOf(WH.byId[a.table]) - WH.tables.indexOf(WH.byId[b.table]))
+      .forEach((k) => {
+        const t = WH.byId[k.table];
+        const vals = [k.table, LAYER_NAME[k.layer], t.source ? srcName[t.source] : "", STATUS_TEXT[k.status],
+          k.start != null ? clock(k.start) : "", k.end != null ? clock(k.end) : "", k.start != null ? d3.format(".0f")(k.minutes) : "",
+          WH.fmtRows(k.rows), waitLine(k), crit.has(k.table) ? "yes" : ""];
+        const tr = tb.insertRow();
+        vals.forEach((v, j) => { const td = tr.insertCell(); td.textContent = v; if (j >= 4 && j <= 7) td.className = "r"; });
+      });
+    btnHost.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", +b.dataset.i === sel ? "true" : "false"));
+    set("f1-status", `Selected: ${fmtDate(run.day)}, Gold ${clock(run.goldEnd)}. ${d.broke ? "Broke." : d.late ? "Late." : "On time."}`);
+  }
+
+  /* ---------- figure 3: where the night goes ---------- */
+  const PARTS = [
+    { key: "run", label: "Running on the critical path" },
+    { key: "slot", label: "Queued for a slot" },
+    { key: "source", label: "Waiting on a source" },
+  ];
+  let f3 = {};
+  function drawMult() {
+    const host = d3.select("#mult");
+    const w = Math.max(260, Lab.width($("f3")) || 900);
+    const narrow = w < 560;
+    const m = { t: narrow ? 46 : 34, r: narrow ? 8 : 74, b: 26, l: 42 };
+    const rowH = narrow ? 66 : 78, gap = 22;
+    const h = m.t + PARTS.length * (rowH + gap) - gap + m.b;
+    host.selectAll("*").remove();
+    const svg = host.append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`)
+      .attr("role", "img").attr("aria-label", "Three aligned strips: minutes running, queued and waiting on source along each night's critical path");
+    const Xsave = X;
+    X = d3.scaleUtc([half(day0), new Date(+runs[N - 1].day + DAY / 2)], [m.l, w - m.r]);
+    const max = d3.max(info, (d) => Math.max(d.chain.run, d.chain.slot, d.chain.source));
+    const levels = incidentLabels(svg, 0, m.l, w - m.r, m.t, h - m.b, true);
+    const step = Math.max(0.6, (w - m.l - m.r) / N - 0.25);
+    PARTS.forEach((p, k) => {
+      const top = m.t + k * (rowH + gap), bot = top + rowH;
+      const Yr = d3.scaleLinear([0, max], [bot, top + 4]).nice();
+      const ticks = Yr.ticks(2);
+      svg.append("g").attr("class", "grid").attr("transform", `translate(${m.l},0)`)
+        .call(d3.axisLeft(Yr).tickValues(ticks).tickSize(-(w - m.l - m.r)).tickFormat(""));
+      svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`)
+        .call(d3.axisLeft(Yr).tickValues(ticks).tickFormat((v) => (v ? v + "m" : "0")).tickSize(0).tickPadding(5)).select(".domain").remove();
+      svg.append("g").selectAll("rect").data(info).join("rect")
+        .attr("x", (d) => xi(d.i) - step / 2).attr("width", step)
+        .attr("y", (d) => Yr(d.chain[p.key])).attr("height", (d) => bot - Yr(d.chain[p.key]))
+        .style("fill", "var(--text-secondary)");
+      svg.append("text").attr("class", "label-strong").attr("x", m.l + 4).attr("y", top + 10).text(p.label);
+      const medTxt = `median ${dur(d3.median(info, (d) => d.chain[p.key]))}`;
+      svg.append("text").attr("class", "label").attr("x", narrow ? w - m.r : w - m.r + 6).attr("y", top + (narrow ? 10 : 14))
+        .attr("text-anchor", narrow ? "end" : "start").text(medTxt);
+    });
+    svg.append("g").attr("class", "axis").attr("transform", `translate(0,${h - m.b})`)
+      .call(d3.axisBottom(X).tickValues(monthTicks.filter((d, k) => !narrow || k % 2 === 0)).tickFormat(monthFmt).tickSizeOuter(0));
+    const selLine = svg.append("line").attr("y1", m.t).attr("y2", h - m.b).style("stroke", "var(--text-primary)").style("stroke-width", 1);
+    svg.append("rect").attr("x", m.l).attr("y", m.t).attr("width", w - m.l - m.r).attr("height", h - m.t - m.b)
+      .style("fill", "transparent").style("cursor", "pointer")
+      .on("pointermove", (e) => {
+        const i = idxAt(d3.pointer(e)[0], f3.X), c = info[i].chain;
+        Lab.tooltip.show(e, `<strong>${fmtDate(runs[i].day)}</strong><br><span class="tt-k">Gold finished</span> ${clock(runs[i].goldEnd)}<br>` +
+          `<span class="tt-k">Running</span> ${dur(c.run)}<br><span class="tt-k">Queued</span> ${dur(c.slot)}<br><span class="tt-k">Source</span> ${dur(c.source)}` +
+          (runs[i].incidents.length ? `<br><span class="tt-k">Incident</span> ${runs[i].incidents.map((x) => x.title).join("; ")}` : ""));
+      })
+      .on("pointerleave", () => Lab.tooltip.hide())
+      .on("click", (e) => select(idxAt(d3.pointer(e)[0], f3.X)));
+    f3 = { selLine, X };
+    X = Xsave;
+    paintMultSel();
+  }
+  function paintMultSel() {
+    if (!f3.selLine) return;
+    const x = f3.X(new Date(+day0 + sel * DAY));
+    f3.selLine.attr("x1", x).attr("x2", x);
+  }
+  (function readF3() {
+    const med = (id, key) => dur(d3.median(incRuns(id), (d) => d.chain[key]));
+    const base = info.filter((d) => !d.run.incidents.length);
+    $("f3-read").innerHTML = `Each incident leaves its own signature. The CRM rate-limit week is almost pure source wait (median <b>${med("crmapi", "source")}</b>), and running time actually fell because the late tables were small. ` +
+      `Throttling doubled running (<b>${med("throttle", "run")}</b> against <b>${dur(d3.median(base, (d) => d.chain.run))}</b> on a quiet night) and pushed queueing up with it. ` +
+      `Bot traffic was all running: <b>${med("bots", "run")}</b>. One finish time hides three different fixes: call the vendor, buy capacity, fix the model.`;
+  })();
+
+  /* ---------- selection ---------- */
+  function select(i) {
+    sel = i;
+    paintStripSel(); paintMultSel();
+    drawGantt(); paintNight();
+  }
+
+  Lab.responsive(() => { drawStrip(); drawMult(); drawGantt(); paintNight(); });
+})();
+</script>
+</body>
+</html>
