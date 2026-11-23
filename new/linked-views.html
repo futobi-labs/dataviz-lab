@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linked views · Data Viz Lab</title>
+<meta name="description" content="Brushing and linking across a canvas scatter, two histograms and a category bar chart: 2,000 fictional rides, crossfiltered in plain JavaScript.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .lv-bar {
+    position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 6px 16px; padding: 10px 0; background: var(--page); border-bottom: 1px solid var(--border); margin-top: 1.5rem;
+  }
+  .lv-bar p { margin: 0; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .lv-bar strong { color: var(--text-primary); font-size: 1.15rem; }
+  .lv-bar b { color: var(--text-primary); font-weight: 600; }
+  .lv-bar .controls { margin: 0; }
+  .lv-bar button:disabled { opacity: 0.45; cursor: default; }
+  .lv-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+  .lv-grid .figure { margin: 0; }
+  .lv-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  @media (max-width: 860px) { .lv-grid { grid-template-columns: 1fr; } }
+  .stack { position: relative; }
+  .stack > * { position: absolute; left: 0; top: 0; }
+  .stack canvas { pointer-events: none; }
+  .brush .selection { fill: var(--text-primary); fill-opacity: 0.06; stroke: var(--text-primary); stroke-opacity: 0.6; shape-rendering: crispEdges; }
+  .brush .handle { fill: none; }
+  .cat-row { cursor: pointer; }
+  .cat-row:focus { outline: none; }
+  .cat-row:focus-visible .cat-bg { stroke: var(--accent); stroke-width: 2; }
+  .try { color: var(--text-secondary); font-size: 0.95rem; margin: 0.8rem 0 0; }
+  .try b { color: var(--text-primary); font-weight: 600; }
+  #lv-summary table { margin-top: 6px; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/" aria-current="true">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">New data viz</p>
+  <h1>Linked views</h1>
+  <p class="lede">Two thousand fictional rides from a city's shared bikes and scooters, seen four ways at once. Drag across any chart to filter; every other chart answers immediately. Each view ignores its own filter, so you can always see where else the brush could go.</p>
+  <p class="try">Try two things. Brush fares of $10 and up: <b id="k-hi"></b> of those rides are e-bikes. Then brush 9 pm to midnight: scooters, <b id="k-scshare"></b> of all rides, are <b id="k-night"></b> of the late ones.</p>
+
+  <div class="lv-bar">
+    <p><strong id="lv-n">2,000</strong> of 2,000 rides shown · median fare <b id="lv-fare"></b> · median duration <b id="lv-dur"></b></p>
+    <div class="controls"><button type="button" id="lv-reset" disabled>Reset all filters</button></div>
+  </div>
+
+  <div class="lv-grid">
+    <div class="figure">
+      <p class="figure-title">Duration against distance</p>
+      <p class="figure-sub">One dot per ride. Drag a rectangle to filter. Both axes square-root scaled to open up the dense short rides.</p>
+      <div class="legend" id="lv-legend"></div>
+      <div class="stack" id="sc"></div>
+    </div>
+    <div class="lv-side">
+      <div class="figure">
+        <p class="figure-title">Start time</p>
+        <p class="figure-sub">Rides per hour of day. Drag to filter.</p>
+        <div id="h-hour"></div>
+      </div>
+      <div class="figure">
+        <p class="figure-title">Fare</p>
+        <p class="figure-sub">Rides per $1 bin; the last bin holds everything from $20 up.</p>
+        <div id="h-fare"></div>
+      </div>
+      <div class="figure">
+        <p class="figure-title">Vehicle</p>
+        <p class="figure-sub">Click a bar to filter; click again to clear it.</p>
+        <div id="cats"></div>
+      </div>
+    </div>
+  </div>
+  <div id="lv-summary"></div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li><strong>Old idea, new speed.</strong> Becker and Cleveland's "Brushing Scatterplots" (1987) had this on a workstation. Square's Crossfilter (Bostock, 2012) and dc.js made it a web idiom. Here it is about a hundred lines of plain JavaScript: four filter predicates over typed arrays, recounted on every animation frame.</li>
+      <li><strong>Crossfilter semantics, on purpose.</strong> Each chart counts records that pass every filter except its own, then grays the part outside its own brush. Filter a chart by itself and you would lose the context that tells you where to brush next.</li>
+      <li><strong>This is Shneiderman's mantra made literal</strong> (overview first, zoom and filter, details on demand, 1996), and the dynamics Heer and Shneiderman catalog in "Interactive Dynamics for Visual Analysis" (2012): select, filter, coordinate.</li>
+      <li><strong>Gray is a fixed reference.</strong> Histogram heights keep the unfiltered scale, so a filtered subset looks small because it is small. Rescaling each view to its selection would be livelier and would lie about magnitude.</li>
+      <li><strong>Brushing is a forking-paths machine.</strong> Sweep the brush long enough and some subset will look remarkable. Zgraggen and colleagues (2018) showed that most "insights" found this way in random data are false discoveries. Treat what you find here as a hypothesis to test on held-out data, not a finding.</li>
+    </ul>
+  </div>
+  <p class="source">Source: synthetic. 2,000 fictional rides generated in-page from a seeded random source (seed 2026): start times from commute, midday and late-evening mixtures; log-normal distances; durations from vehicle speed; fares from invented per-minute rates ($0.17 classic, $0.33 e-bike, $0.39 scooter, plus $1 to unlock).</p>
+  <p><a href="./">← New data viz</a></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const N = 2000;
+  const CATS = ["Classic bike", "E-bike", "Scooter"];
+
+  /* ---------- data ---------- */
+  const rand = Lab.rng(2026);
+  const W = [[0.32, 0.36, 0.24, 0.08], [0.30, 0.38, 0.22, 0.10], [0.10, 0.22, 0.30, 0.38]];
+  const MODE = [[8.2, 0.9], [17.6, 1.1], [13, 2.0], [21.6, 1.4]];
+  const cat = new Uint8Array(N), hour = new Float32Array(N), dist = new Float32Array(N), dur = new Float32Array(N), fare = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const u = rand();
+    const c = u < 0.55 ? 0 : u < 0.88 ? 1 : 2;
+    let v = rand(), k = 0, acc = W[c][0];
+    while (v > acc && k < 3) { k++; acc += W[c][k]; }
+    let h = MODE[k][0] + MODE[k][1] * Lab.randn(rand);
+    h = ((h % 24) + 24) % 24;
+    const leisure = k >= 2;
+    const d = Math.max(0.2, Math.min(14, [2.3, 3.8, 1.5][c] * (leisure ? 1.25 : 1) * Math.exp(0.5 * Lab.randn(rand))));
+    const sp = [12.5, 18, 14][c] * (leisure ? 0.72 : 1) * Math.exp(0.15 * Lab.randn(rand));
+    const t = Math.max(1, Math.min(90, (d / sp) * 60 + 1 + 1.5 * rand()));
+    cat[i] = c; hour[i] = h; dist[i] = d; dur[i] = t;
+    fare[i] = Math.round((1 + [0.17, 0.33, 0.39][c] * t) * 100) / 100;
+  }
+
+  // The two "try this" claims, computed rather than asserted.
+  (function () {
+    let hi = 0, hiE = 0, late = 0, lateS = 0, sc = 0;
+    for (let i = 0; i < N; i++) {
+      if (fare[i] >= 10) { hi++; if (cat[i] === 1) hiE++; }
+      if (hour[i] >= 21) { late++; if (cat[i] === 2) lateS++; }
+      if (cat[i] === 2) sc++;
+    }
+    document.getElementById("k-hi").textContent = `${hiE} of ${hi}`;
+    document.getElementById("k-scshare").textContent = Lab.fmt.pct(sc / N);
+    document.getElementById("k-night").textContent = Lab.fmt.pct(lateS / late);
+  })();
+
+  /* ---------- filter state ---------- */
+  const F = { dist: null, dur: null, hour: null, fare: null, cats: new Set() };
+  const within = (v, r) => !r || (v >= r[0] && v < r[1]);
+  const passS = new Uint8Array(N), passH = new Uint8Array(N), passF = new Uint8Array(N), passC = new Uint8Array(N), all = new Uint8Array(N);
+
+  /* ---------- histogram factory ---------- */
+  function Hist(id, values, lo, hi, step, fmtBin, fmtTick, filterKey) {
+    const nb = Math.round((hi - lo) / step);
+    const binOf = (v) => Math.max(0, Math.min(nb - 1, Math.floor((v - lo) / step)));
+    const total = new Array(nb).fill(0);
+    for (let i = 0; i < N; i++) total[binOf(values[i])]++;
+    const host = d3.select("#" + id);
+    const self = { fg: new Array(nb).fill(0) };
+    let x, y, bg, fgR, brushG, brush;
+    const H = 132, m = { t: 8, r: 10, b: 24, l: 34 };
+
+    self.render = function () {
+      const el = document.getElementById(id);
+      const w = Math.max(240, Lab.width(el) || el.clientWidth || 360);
+      x = d3.scaleLinear([lo, hi], [m.l, w - m.r]);
+      y = d3.scaleLinear([0, d3.max(total)], [H - m.b, m.t]).nice();
+      const svg = host.selectAll("svg").data([0]).join("svg").attr("viewBox", `0 0 ${w} ${H}`).attr("width", w).attr("height", H)
+        .attr("role", "img").attr("aria-label", `Histogram of ${id === "h-hour" ? "start hour" : "fare"}`);
+      svg.selectAll("*").remove();
+      svg.append("g").attr("class", "grid").attr("transform", `translate(${m.l},0)`)
+        .call(d3.axisLeft(y).ticks(3).tickSize(-(w - m.l - m.r)).tickFormat(""));
+      svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`)
+        .call(d3.axisLeft(y).ticks(3).tickSize(0).tickPadding(5)).select(".domain").remove();
+      const bw = Math.max(1, x(lo + step) - x(lo) - 1);
+      bg = svg.append("g").selectAll("rect").data(total).join("rect")
+        .attr("x", (d, i) => x(lo + i * step) + 0.5).attr("width", bw)
+        .attr("y", (d) => y(d)).attr("height", (d) => y(0) - y(d)).style("fill", "var(--grid)");
+      fgR = svg.append("g").selectAll("rect").data(total).join("rect")
+        .attr("x", (d, i) => x(lo + i * step) + 0.5).attr("width", bw);
+      svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`)
+        .call(d3.axisBottom(x).ticks(Math.min(8, Math.floor(w / 60))).tickFormat(fmtTick).tickSizeOuter(0));
+      brush = d3.brushX().extent([[m.l, m.t], [w - m.r, H - m.b]])
+        .on("start brush end", (e) => {
+          if (!e.sourceEvent) return;
+          Lab.tooltip.hide();
+          if (!e.selection) { F[filterKey] = null; changed(); return; }
+          let a = x.invert(e.selection[0]), b = x.invert(e.selection[1]);
+          if (e.type === "end") {
+            a = lo + Math.round((a - lo) / step) * step; b = lo + Math.round((b - lo) / step) * step;
+            if (b <= a) b = a + step;
+            if (b > hi) { b = hi; a = Math.min(a, hi - step); }
+            brushG.call(brush.move, [x(a), x(b)]);
+          }
+          F[filterKey] = [a, b >= hi ? Infinity : b];
+          changed();
+        });
+      brushG = svg.append("g").attr("class", "brush").call(brush);
+      svg.on("pointermove", (e) => {
+        if (e.buttons) return;
+        const px = d3.pointer(e)[0];
+        if (px < m.l || px > w - m.r) { Lab.tooltip.hide(); return; }
+        const i = binOf(x.invert(px));
+        Lab.tooltip.show(e, `<strong>${fmtBin(lo + i * step, i === nb - 1)}</strong><br>${Lab.fmt.int(self.fg[i])} shown of ${Lab.fmt.int(total[i])}`);
+      }).on("pointerleave", () => Lab.tooltip.hide());
+      const r = F[filterKey];
+      if (r) brushG.call(brush.move, [x(r[0]), x(Math.min(hi, r[1]))]);
+      self.paint();
+    };
+    self.paint = function () {
+      const r = F[filterKey];
+      fgR.attr("y", (d, i) => y(self.fg[i])).attr("height", (d, i) => y(0) - y(self.fg[i]))
+        .style("fill", (d, i) => {
+          if (!r) return "var(--text-secondary)";
+          const a = lo + i * step, b = a + step;
+          return a >= r[0] - 1e-9 && b <= Math.min(hi, r[1]) + 1e-9 ? "var(--text-secondary)" : "var(--axis)";
+        });
+    };
+    self.clear = function () { if (brushG) brushG.call(brush.move, null); };
+    self.binOf = binOf;
+    self.nb = nb;
+    return self;
+  }
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const hHour = Hist("h-hour", hour, 0, 24, 1,
+    (a) => `${pad2(a)}:00 to ${pad2(a + 1 === 24 ? 0 : a + 1)}:00`,
+    (v) => pad2(v) + ":00", "hour");
+  const hFare = Hist("h-fare", fare, 0, 21, 1,
+    (a, last) => (last ? "$20 and up" : `$${a} to $${a + 1}`),
+    (v) => (v === 21 ? "" : "$" + v), "fare");
+
+  /* ---------- category bars ---------- */
+  const catTotal = [0, 0, 0];
+  for (let i = 0; i < N; i++) catTotal[cat[i]]++;
+  const catFg = [0, 0, 0];
+  let catRows;
+  function renderCats() {
+    const el = document.getElementById("cats");
+    const w = Math.max(240, Lab.width(el) || el.clientWidth || 360);
+    const rowH = 30, H = rowH * 3 + 4, lw = 86, vw = 92;
+    const x = d3.scaleLinear([0, d3.max(catTotal)], [lw, w - vw]);
+    const svg = d3.select(el).selectAll("svg").data([0]).join("svg").attr("viewBox", `0 0 ${w} ${H}`).attr("width", w).attr("height", H)
+      .attr("role", "group").attr("aria-label", "Vehicle filter");
+    svg.selectAll("*").remove();
+    catRows = svg.selectAll("g").data([0, 1, 2]).join("g").attr("class", "cat-row")
+      .attr("transform", (k) => `translate(0,${k * rowH + 2})`)
+      .attr("tabindex", 0).attr("role", "button")
+      .on("click", (e, k) => toggleCat(k))
+      .on("keydown", (e, k) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleCat(k); } });
+    catRows.append("rect").attr("x", 0).attr("y", 0).attr("width", w).attr("height", rowH - 2).style("fill", "transparent");
+    catRows.append("text").attr("class", "cat-name label").attr("x", 0).attr("y", rowH / 2 + 3).text((k) => CATS[k]);
+    catRows.append("rect").attr("class", "cat-bg").attr("x", lw).attr("y", 5).attr("height", rowH - 12)
+      .attr("width", (k) => x(catTotal[k]) - lw).style("fill", "var(--grid)");
+    catRows.append("rect").attr("class", "cat-fg").attr("x", lw).attr("y", 5).attr("height", rowH - 12);
+    catRows.append("text").attr("class", "cat-v label").attr("x", w).attr("y", rowH / 2 + 3).attr("text-anchor", "end");
+    renderCats.x = x;
+    paintCats();
+  }
+  function paintCats() {
+    const x = renderCats.x, sel = F.cats;
+    catRows.attr("aria-pressed", (k) => (sel.has(k) ? "true" : "false"))
+      .attr("aria-label", (k) => `${CATS[k]}: ${catFg[k]} of ${catTotal[k]} shown. ${sel.has(k) ? "Selected" : "Not selected"}.`);
+    catRows.select(".cat-fg").attr("width", (k) => Math.max(0, x(catFg[k]) - x(0)))
+      .style("fill", (k) => (sel.size && !sel.has(k) ? "var(--axis)" : `var(--series-${k + 1})`));
+    catRows.select(".cat-v").text((k) => `${Lab.fmt.int(catFg[k])} of ${Lab.fmt.int(catTotal[k])}`);
+    catRows.select(".cat-name").attr("class", (k) => (sel.has(k) ? "cat-name label-strong" : "cat-name label"));
+  }
+  function toggleCat(k) {
+    if (F.cats.has(k)) F.cats.delete(k); else F.cats.add(k);
+    changed();
+  }
+
+  /* ---------- scatter (canvas points, SVG axes and brush) ---------- */
+  const legendEl = document.getElementById("lv-legend");
+  legendEl.innerHTML = CATS.map((c, k) => `<span><span class="swatch" style="background: var(--series-${k + 1})"></span>${c}</span>`).join("")
+    + `<span><span class="swatch" style="background: var(--text-muted); opacity: 0.35"></span>Filtered out</span>`;
+  const sc = { el: document.getElementById("sc") };
+  function renderScatter() {
+    const el = sc.el;
+    const w = Math.max(280, Lab.width(el.parentNode) || el.clientWidth || 600);
+    const h = Math.round(Math.max(300, Math.min(560, w * 0.78)));
+    const m = { t: 10, r: 14, b: 36, l: 42 };
+    el.style.height = h + "px";
+    el.innerHTML = "";
+    const x = d3.scaleSqrt([0, 14], [m.l, w - m.r]);
+    const y = d3.scaleSqrt([0, 80], [h - m.b, m.t]);
+    const back = d3.select(el).append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`).attr("aria-hidden", "true");
+    const xt = [0.5, 1, 2, 4, 6, 8, 10, 12, 14].filter((v) => w > 420 || [0.5, 2, 4, 8, 14].includes(v));
+    const yt = [1, 5, 10, 20, 30, 45, 60, 80];
+    back.append("g").attr("class", "grid").attr("transform", `translate(0,${h - m.b})`).call(d3.axisBottom(x).tickValues(xt).tickSize(-(h - m.t - m.b)).tickFormat(""));
+    back.append("g").attr("class", "grid").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).tickValues(yt).tickSize(-(w - m.l - m.r)).tickFormat(""));
+    back.append("g").attr("class", "axis").attr("transform", `translate(0,${h - m.b})`).call(d3.axisBottom(x).tickValues(xt).tickFormat(d3.format("~g")).tickSizeOuter(0));
+    back.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).tickValues(yt).tickSize(0).tickPadding(5)).select(".domain").remove();
+    back.append("text").attr("class", "label").attr("x", w - m.r).attr("y", h - 4).attr("text-anchor", "end").text("Distance, km");
+    back.append("text").attr("class", "label").attr("x", m.l + 6).attr("y", m.t + 12).text("Duration, min");
+    const canvas = document.createElement("canvas");
+    el.appendChild(canvas);
+    const ctx = Lab.canvas(canvas, w, h);
+    const top = d3.select(el).append("svg").attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`)
+      .attr("role", "img").attr("aria-label", "Scatterplot of ride duration against distance; drag to filter");
+    const px = new Float32Array(N), py = new Float32Array(N);
+    for (let i = 0; i < N; i++) { px[i] = x(dist[i]); py[i] = y(dur[i]); }
+    const delaunay = d3.Delaunay.from({ length: N }, (_, i) => px[i], (_, i) => py[i]);
+    const ring = top.append("circle").attr("r", 5).style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1.5).style("display", "none");
+    const brush = d3.brush().extent([[m.l, m.t], [w - m.r, h - m.b]])
+      .on("start brush end", (e) => {
+        if (!e.sourceEvent) return;
+        ring.style("display", "none"); Lab.tooltip.hide();
+        const s = e.selection;
+        F.dist = s ? [x.invert(s[0][0]), x.invert(s[1][0])] : null;
+        F.dur = s ? [y.invert(s[1][1]), y.invert(s[0][1])] : null;
+        changed();
+      });
+    const brushG = top.append("g").attr("class", "brush").call(brush);
+    if (F.dist) brushG.call(brush.move, [[x(F.dist[0]), y(F.dur[1])], [x(F.dist[1]), y(F.dur[0])]]);
+    top.on("pointermove", (e) => {
+      if (e.buttons) return;
+      const [mx, my] = d3.pointer(e);
+      const i = delaunay.find(mx, my);
+      if (i < 0 || Math.hypot(px[i] - mx, py[i] - my) > 14) { ring.style("display", "none"); Lab.tooltip.hide(); return; }
+      ring.attr("cx", px[i]).attr("cy", py[i]).style("display", null);
+      Lab.tooltip.show(e, `<strong>${CATS[cat[i]]}</strong>${all[i] ? "" : ' <span class="tt-k">(filtered out)</span>'}<br>`
+        + `<span class="tt-k">Start</span> ${pad2(Math.floor(hour[i]))}:${pad2(Math.floor((hour[i] % 1) * 60))}<br>`
+        + `<span class="tt-k">Distance</span> ${d3.format(".1f")(dist[i])} km<br><span class="tt-k">Duration</span> ${d3.format(".0f")(dur[i])} min<br>`
+        + `<span class="tt-k">Fare</span> ${d3.format("$.2f")(fare[i])}`);
+    }).on("pointerleave", () => { ring.style("display", "none"); Lab.tooltip.hide(); });
+    Object.assign(sc, { ctx, w, h, px, py, clear: () => brushG.call(brush.move, null) });
+    drawScatter();
+  }
+  function drawScatter() {
+    const { ctx, w, h, px, py } = sc;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = Lab.css("--text-muted");
+    for (let i = 0; i < N; i++) if (!all[i]) { ctx.beginPath(); ctx.arc(px[i], py[i], 1.6, 0, 2 * Math.PI); ctx.fill(); }
+    ctx.globalAlpha = 0.72;
+    for (let k = 0; k < 3; k++) {
+      ctx.fillStyle = Lab.css(`--series-${k + 1}`);
+      for (let i = 0; i < N; i++) if (all[i] && cat[i] === k) { ctx.beginPath(); ctx.arc(px[i], py[i], 2.3, 0, 2 * Math.PI); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- recompute, crossfilter-style ---------- */
+  const nEl = document.getElementById("lv-n"), fareEl = document.getElementById("lv-fare"), durEl = document.getElementById("lv-dur"), resetBtn = document.getElementById("lv-reset");
+  const summaryRows = () => [0, 1, 2].map((k) => {
+    const f = [], t = [];
+    for (let i = 0; i < N; i++) if (all[i] && cat[i] === k) { f.push(fare[i]); t.push(dur[i]); }
+    return { cat: CATS[k], n: f.length, of: catTotal[k], dur: f.length ? d3.median(t) : null, fare: f.length ? d3.median(f) : null };
+  });
+  function recompute() {
+    hHour.fg.fill(0); hFare.fg.fill(0); catFg.fill(0);
+    const sel = F.cats;
+    let n = 0;
+    const fares = [], durs = [];
+    for (let i = 0; i < N; i++) {
+      const s = within(dist[i], F.dist) && within(dur[i], F.dur);
+      const h = within(hour[i], F.hour), f = within(fare[i], F.fare), c = !sel.size || sel.has(cat[i]);
+      passS[i] = s; passH[i] = h; passF[i] = f; passC[i] = c;
+      if (s && f && c) hHour.fg[hHour.binOf(hour[i])]++;
+      if (s && h && c) hFare.fg[hFare.binOf(fare[i])]++;
+      if (s && h && f) catFg[cat[i]]++;
+      all[i] = s && h && f && c;
+      if (all[i]) { n++; fares.push(fare[i]); durs.push(dur[i]); }
+    }
+    nEl.textContent = Lab.fmt.int(n);
+    fareEl.textContent = n ? d3.format("$.2f")(d3.median(fares)) : "n/a";
+    durEl.textContent = n ? d3.format(".0f")(d3.median(durs)) + " min" : "n/a";
+    resetBtn.disabled = !(F.dist || F.hour || F.fare || sel.size);
+  }
+  function paintAll() {
+    hHour.paint(); hFare.paint(); paintCats(); drawScatter(); paintSummary();
+  }
+
+  const sumHost = document.getElementById("lv-summary");
+  const sumDetails = Lab.tableView(sumHost,
+    [{ key: "cat", label: "Vehicle" }, { key: "n", label: "Shown", align: "r" }, { key: "of", label: "Of", align: "r" },
+     { key: "dur", label: "Median duration, min", align: "r" }, { key: "fare", label: "Median fare", align: "r" }],
+    [], "Show the current selection as a table");
+  function paintSummary() {
+    const tb = sumDetails.querySelector("tbody");
+    tb.innerHTML = "";
+    summaryRows().forEach((r) => {
+      const tr = tb.insertRow();
+      [r.cat, Lab.fmt.int(r.n), Lab.fmt.int(r.of), r.dur == null ? "n/a" : d3.format(".0f")(r.dur), r.fare == null ? "n/a" : d3.format("$.2f")(r.fare)]
+        .forEach((v, j) => { const td = tr.insertCell(); td.textContent = v; if (j) td.className = "r"; });
+    });
+  }
+
+  let raf = 0;
+  function changed() {
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; recompute(); paintAll(); });
+  }
+
+  resetBtn.addEventListener("click", () => {
+    F.dist = F.dur = F.hour = F.fare = null; F.cats.clear();
+    if (sc.clear) sc.clear();
+    hHour.clear(); hFare.clear();
+    recompute(); paintAll();
+  });
+
+  recompute();
+  Lab.responsive(() => { renderScatter(); hHour.render(); hFare.render(); renderCats(); paintSummary(); });
+  Lab.onTheme(drawScatter);
+})();
+</script>
+</body>
+</html>

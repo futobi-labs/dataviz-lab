@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New data viz · Data Viz Lab</title>
+<meta name="description" content="Forward-looking data visualization: scrollytelling with object constancy, uncertainty displays people can reason with, and coordinated linked views.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .cards .card .thumb { height: 160px; }
+  .meaning { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 32px; margin-top: 0.8rem; }
+  .meaning p { margin: 0.3rem 0; font-size: 0.95rem; color: var(--text-secondary); }
+  .meaning strong { color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/" aria-current="true">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">New data viz</p>
+  <h1>New data viz</h1>
+  <p class="lede">Few and Tufte wrote mostly for the printed page and the single screen. These pieces are about what the page could not do: change state as you read, show a distribution as outcomes instead of a summary, and let one chart interrogate another.</p>
+
+  <div class="cards">
+    <a class="card" href="scrollytelling.html">
+      <div class="thumb" id="t-scroll" aria-hidden="true"></div>
+      <div class="body">
+        <h3>One cohort, six views</h3>
+        <p>Scrollytelling with a sticky unit chart. A thousand applicants regroup six times, and the aggregate hire rate turns out to be hiding a screening bias.</p>
+      </div>
+    </a>
+    <a class="card" href="uncertainty.html">
+      <div class="thumb" id="t-unc" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Uncertainty you can feel</h3>
+        <p>Hypothetical outcome plots against error bars, a quantile dotplot with a draggable deadline, and a fan chart against its own sample paths.</p>
+      </div>
+    </a>
+    <a class="card" href="linked-views.html">
+      <div class="thumb" id="t-linked" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Linked views</h3>
+        <p>Brushing and linking across four coordinated charts of 2,000 rides. Crossfilter semantics in plain JavaScript, a canvas scatter and a live count.</p>
+      </div>
+    </a>
+  </div>
+
+  <h2>What "new" means here</h2>
+  <p>Not novelty. Each technique below has a research lineage of ten to forty years; what changed is that a browser can now run them at sixty frames a second on a phone. The bar for using them is the same one Few and Tufte set for ink: each must show something a static chart cannot.</p>
+  <div class="meaning">
+    <p><strong>Interaction as a question.</strong> A brush or a filter should let the reader ask the next question, not decorate the answer to the last one.</p>
+    <p><strong>Uncertainty as outcomes.</strong> People reason better about frequencies and draws than about intervals and densities. Show the outcomes.</p>
+    <p><strong>Narrative as sequence.</strong> Order is an argument. A scroll-driven story is a chosen path through the data, and should say so.</p>
+    <p><strong>Motion with a job.</strong> Animation carries identity between states or samples from a distribution. If it only entertains, cut it. Every piece honors reduced-motion settings.</p>
+  </div>
+  <p><a href="../">← Data Viz Lab</a></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  function svg(id) {
+    const el = document.getElementById(id);
+    const w = el.clientWidth || 300, h = el.clientHeight || 160;
+    el.innerHTML = "";
+    return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
+  }
+
+  function draw() {
+    // Scrollytelling: three unit bars at rest, a few dots still on their way from the cloud.
+    (function () {
+      const { s, w, h } = svg("t-scroll");
+      const rand = Lab.rng(5);
+      const groups = [[52, 4], [18, 5], [30, 3]];   // [dots, hires]
+      const cell = 7, cols = 6, base = h - 22, gw = cols * cell, gap = (w - 3 * gw) / 4;
+      groups.forEach(([n, hires], k) => {
+        const x0 = gap + k * (gw + gap);
+        for (let j = 0; j < n; j++) {
+          const col = j % cols, row = Math.floor(j / cols);
+          const inFlight = j >= n - 3;
+          const tx = x0 + col * cell + cell / 2, ty = base - row * cell - cell / 2;
+          const fx = inFlight ? tx + (rand() - 0.5) * 60 : tx, fy = inFlight ? ty - 20 - rand() * 30 : ty;
+          if (inFlight) s.append("line").attr("x1", fx).attr("y1", fy).attr("x2", tx).attr("y2", ty)
+            .style("stroke", "var(--axis)").style("stroke-dasharray", "2 2");
+          s.append("circle").attr("cx", fx).attr("cy", fy).attr("r", 2.6)
+            .style("fill", j < hires ? `var(--series-${k + 1})` : "var(--text-muted)").style("opacity", j < hires ? 1 : 0.4);
+        }
+        s.append("line").attr("x1", x0 - 2).attr("x2", x0 + gw + 2).attr("y1", base + 2).attr("y2", base + 2).style("stroke", "var(--axis)");
+      });
+    })();
+
+    // Uncertainty: a 20-dot quantile dotplot with a deadline.
+    (function () {
+      const { s, w, h } = svg("t-unc");
+      const stacks = [1, 1, 2, 3, 3, 3, 2, 2, 1, 1, 1];
+      const d = Math.min(14, (w - 60) / stacks.length), x0 = (w - d * stacks.length) / 2, base = h - 26;
+      const T = 7;
+      stacks.forEach((n, i) => {
+        for (let j = 0; j < n; j++) {
+          const ok = i < T;
+          s.append("circle").attr("cx", x0 + i * d + d / 2).attr("cy", base - j * d - d / 2).attr("r", d / 2 - 1.2)
+            .style("fill", ok ? "var(--series-1)" : "none").style("stroke", ok ? "var(--series-1)" : "var(--text-muted)").style("stroke-width", 1.2);
+        }
+      });
+      s.append("line").attr("x1", x0 - 4).attr("x2", x0 + d * stacks.length + 4).attr("y1", base + 2).attr("y2", base + 2).style("stroke", "var(--axis)");
+      const tx = x0 + T * d;
+      s.append("line").attr("x1", tx).attr("x2", tx).attr("y1", 22).attr("y2", base + 6).style("stroke", "var(--text-primary)").style("stroke-width", 1.5);
+      s.append("circle").attr("cx", tx).attr("cy", 22).attr("r", 4.5).style("fill", "var(--text-primary)");
+      s.append("text").attr("class", "label").attr("x", tx + 8).attr("y", 26).text("15 of 20");
+    })();
+
+    // Linked views: a scatter with a brush, and the histogram it lights up.
+    (function () {
+      const { s, w, h } = svg("t-linked");
+      const rand = Lab.rng(12);
+      const sx = 16, sw = w * 0.58, sy = 14, sh = h - 30;
+      const bx = [sx + sw * 0.34, sx + sw * 0.62], by = [sy + sh * 0.28, sy + sh * 0.68];
+      const pts = d3.range(140).map(() => {
+        const a = rand(), k = a < 0.55 ? 0 : a < 0.88 ? 1 : 2;
+        const px = sx + Math.min(0.98, Math.sqrt(rand())) * sw, py = sy + sh - (px - sx) / sw * sh * (0.55 + 0.35 * rand()) - 4;
+        return { px, py, k };
+      });
+      s.append("rect").attr("x", bx[0]).attr("y", by[0]).attr("width", bx[1] - bx[0]).attr("height", by[1] - by[0])
+        .style("fill", "var(--text-primary)").style("fill-opacity", 0.06).style("stroke", "var(--text-primary)").style("stroke-opacity", 0.6);
+      pts.forEach((p) => {
+        const inB = p.px >= bx[0] && p.px <= bx[1] && p.py >= by[0] && p.py <= by[1];
+        s.append("circle").attr("cx", p.px).attr("cy", p.py).attr("r", inB ? 2.3 : 1.6)
+          .style("fill", inB ? `var(--series-${p.k + 1})` : "var(--text-muted)").style("opacity", inB ? 0.9 : 0.3);
+      });
+      const hx = sx + sw + 18, hw = w - hx - 16, nb = 10, bw = hw / nb, hb = h - 16;
+      const bg = [3, 7, 12, 16, 14, 11, 8, 6, 4, 2], fg = [0, 1, 3, 7, 9, 6, 2, 1, 0, 0];
+      bg.forEach((v, i) => {
+        s.append("rect").attr("x", hx + i * bw).attr("width", bw - 1).attr("y", hb - v * 6).attr("height", v * 6).style("fill", "var(--grid)");
+        s.append("rect").attr("x", hx + i * bw).attr("width", bw - 1).attr("y", hb - fg[i] * 6).attr("height", fg[i] * 6).style("fill", "var(--text-secondary)");
+      });
+    })();
+  }
+  Lab.responsive(draw);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrollytelling · Data Viz Lab</title>
+<meta name="description" content="A scroll-driven unit chart: 1,000 fictional job applicants move through six views with object constancy.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .scrolly { display: grid; grid-template-columns: minmax(230px, 0.75fr) minmax(0, 1.6fr); gap: 0 36px; margin: 2rem 0 1rem; }
+  .steps { grid-column: 1; grid-row: 1; padding: 22vh 0 38vh; }
+  .step {
+    margin: 0 0 62vh; padding: 12px 0 12px 16px; border-left: 2px solid var(--grid);
+    opacity: 0.38; transition: opacity 220ms, border-color 220ms;
+  }
+  .step:last-child { margin-bottom: 0; }
+  .step.active { opacity: 1; border-left-color: var(--text-primary); }
+  .step h3 { margin: 0 0 0.35rem; }
+  .step p { margin: 0 0 0.6rem; font-size: 0.98rem; color: var(--text-secondary); }
+  .step p:last-child { margin-bottom: 0; }
+  .step b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .step .n { font-size: 0.75rem; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; }
+
+  .graphic {
+    grid-column: 2; grid-row: 1; align-self: start;
+    position: sticky; top: 4vh; height: 92vh; max-height: 860px; min-height: 420px;
+    display: flex; flex-direction: column; margin: 0;
+  }
+  .graphic:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .g-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px 16px; flex-wrap: wrap; }
+  .g-head .controls { margin: 0; }
+  .g-head .figure-sub { margin-bottom: 6px; }
+  .g-plot { flex: 1 1 auto; min-height: 0; position: relative; }
+  .g-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .graphic .legend { margin: 6px 0 0; min-height: 1.4em; }
+  .legend .ring { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+
+  circle.dot { transition: fill 600ms ease, opacity 600ms ease; }
+  circle.dot.c0 { fill: var(--series-1); }
+  circle.dot.c1 { fill: var(--series-2); }
+  circle.dot.c2 { fill: var(--series-3); }
+  circle.dot.mute { fill: var(--text-muted); }
+  circle.dot.off { pointer-events: none; }
+  .annot line.rule { stroke: var(--text-primary); stroke-width: 1; }
+  .annot line.dash { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 3 3; }
+  .annot line.base { stroke: var(--axis); stroke-width: 1; }
+
+  @media (max-width: 820px) {
+    .scrolly { display: block; }
+    .graphic { position: sticky; top: 0; height: 74vh; min-height: 360px; z-index: 0; }
+    .steps { position: relative; z-index: 1; margin-top: -30vh; padding: 0 0 20vh; pointer-events: none; }
+    .step {
+      pointer-events: auto; opacity: 0.96; margin: 0 4px 78vh; padding: 12px 14px;
+      background: var(--surface-1); border: 1px solid var(--border); border-left: 2px solid var(--text-primary);
+      border-radius: 6px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+    }
+    .step.active { opacity: 0.98; }
+  }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/" aria-current="true">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">New data viz</p>
+  <h1>One cohort, six views</h1>
+  <p class="lede">A thousand fictional applicants, one dot each, carried through six arrangements by scrolling. The dots never get swapped out, so every regrouping is the same people seen a different way. The argument builds the way an analyst's notebook does: the aggregate first, then the confound, then the comparison that settles it.</p>
+
+  <section class="scrolly" id="scrolly">
+    <div class="graphic figure" id="graphic" tabindex="0" role="region" aria-roledescription="scroll-driven chart" aria-label="Unit chart of 1,000 applicants. Use the Previous and Next buttons or the left and right arrow keys to change the view.">
+      <div class="g-head">
+        <div>
+          <p class="figure-title" id="g-title">Every applicant, unsorted</p>
+          <p class="figure-sub" id="g-sub">1,000 dots, one per applicant</p>
+        </div>
+        <div class="controls">
+          <button type="button" id="prev" aria-label="Previous view">Previous</button>
+          <span id="stepnum" class="num" aria-live="polite">1 of 6</span>
+          <button type="button" id="next" aria-label="Next view">Next</button>
+        </div>
+      </div>
+      <div class="g-plot" id="plot"></div>
+      <div class="legend" id="g-legend" aria-hidden="true"></div>
+    </div>
+
+    <div class="steps">
+      <div class="step" data-step="0">
+        <p class="n">1 of 6</p>
+        <h3>One dot, one applicant</h3>
+        <p>These are the 1,000 applicants to a fictional engineering apprenticeship in its 2025 cycle. Unsorted, the cloud carries no information at all.</p>
+        <p>Keep that in mind for the rest of the page. Every shape that follows is an editorial decision about what to compare with what.</p>
+      </div>
+      <div class="step" data-step="1">
+        <p class="n">2 of 6</p>
+        <h3>Three ways in</h3>
+        <p><b data-k="n0"></b> applied through the job board, <b data-k="n2"></b> came from campus recruiting and <b data-k="n1"></b> were referred by a current employee.</p>
+        <p>Referrals are the smallest door, <b data-k="share1"></b> of the pool. Cluster area is proportional to head count, so the comparison is honest without a single axis.</p>
+      </div>
+      <div class="step" data-step="2">
+        <p class="n">3 of 6</p>
+        <h3>Who got hired</h3>
+        <p>Each channel becomes a unit bar, hires filled in at the base. <b data-k="hires"></b> people were hired.</p>
+        <p>Referrals supplied <b data-k="share1"></b> of applicants and <b data-k="hshare1"></b> of hires: a hire rate of <b data-k="rate1"></b> against <b data-k="rate0"></b> for the job board and <b data-k="rate2"></b> for campus.</p>
+        <p>This is the chart that usually ends the meeting with "referrals are better candidates." The next view tests that claim.</p>
+      </div>
+      <div class="step" data-step="3">
+        <p class="n">4 of 6</p>
+        <h3>How they scored</h3>
+        <p>Every applicant took the same blind work-sample assessment, scored before anyone saw a name or a channel. Now the dots spread along that score, one lane per channel.</p>
+        <p>Referrals posted the <em>lowest</em> median, <b data-k="med1"></b>, against <b data-k="med0"></b> for the job board and <b data-k="med2"></b> for campus. If referrals are stronger candidates, the one measure that cannot see the referral does not show it.</p>
+      </div>
+      <div class="step" data-step="4">
+        <p class="n">5 of 6</p>
+        <h3>Who cleared the bar</h3>
+        <p>Same positions, hires lit. The median job-board hire scored <b data-k="mh0"></b>; the median referral hire scored <b data-k="mh1"></b>.</p>
+        <p>The dashed line marks the lowest-scoring job-board hire, <b data-k="minh0"></b>. <b data-k="below1"></b> referral hires sit to the left of it. The bar is not the same height for everyone.</p>
+      </div>
+      <div class="step" data-step="5">
+        <p class="n">6 of 6</p>
+        <h3>Same score, different odds</h3>
+        <p>Hold the score roughly constant: only the <b data-k="bandn"></b> applicants scoring 70 to 84. Everyone else steps out.</p>
+        <p>In that band <b data-k="brate1"></b> of referrals were hired, against <b data-k="brate0"></b> of job-board applicants and <b data-k="brate2"></b> from campus. Same assessment result, about <b data-k="ratio"></b> times as likely to be hired.</p>
+        <p>The program does not have a sourcing problem. It has a screening step that rewards who you know, and the aggregate hire rate in view three was hiding it.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="table-host"></div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li><strong>Object constancy is the whole trick.</strong> Bostock's 2012 essay of that name makes the case: when the same mark persists across views, the eye tracks people, not abstractions. Swap the dots for fresh ones between steps and the story turns into six unrelated charts.</li>
+      <li><strong>Scroll triggers, not scroll-jacking.</strong> Steps fire with an IntersectionObserver when they cross the middle of the viewport, the pattern from Bostock's "How To Scroll" and Russell Goldenberg's Scrollama. The page never hijacks the wheel, and the buttons and arrow keys reach every state without scrolling.</li>
+      <li><strong>This is an author-driven, martini-glass structure</strong> (Segel and Heer, 2010): a fixed narrow path, then the open table below for anyone who wants to check. The reader cannot ask the next question, and that is a real cost.</li>
+      <li><strong>The band is a choice.</strong> Seventy to 84 is where the channels overlap enough to compare. A different band moves the ratio. A story format makes cherry-picking that choice easy and invisible, so say which band, and why, every time.</li>
+      <li><strong>Earn the scroll.</strong> Archie Tse's rule at the Times was that anything beyond plain scrolling has to justify itself. Six states is about the ceiling before a static small-multiple would serve the reader better.</li>
+    </ul>
+  </div>
+  <p class="source">Source: synthetic. 1,000 fictional applicants generated in-page from a seeded random source (seed 11). Channel shares, assessment scores and a two-stage logistic screen with a built-in referral bonus are invented for illustration.</p>
+  <p><a href="./">← New data viz</a></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const N = 1000;
+  const CH = ["Job board", "Referral", "Campus"];
+  const OUT = ["Screened out", "Interviewed", "Hired"];
+  const sig = (x) => 1 / (1 + Math.exp(-x));
+
+  /* ---------- data: a seeded two-stage screen with a referral bonus ---------- */
+  const rand = Lab.rng(11);
+  const people = [];
+  for (let i = 0; i < N; i++) {
+    const u = rand();
+    const ch = u < 0.52 ? 0 : u < 0.70 ? 1 : 2;
+    const s = Math.round(Math.max(25, Math.min(99, [64, 59, 66][ch] + [12, 13, 10][ch] * Lab.randn(rand))));
+    const iv = rand() < sig((s - 74) / 4.5 + [-0.6, 2.6, 0][ch]);
+    const h = iv && rand() < sig((s - 82) / 4.5 + [0, 2.2, 0.2][ch]);
+    people.push({ id: i + 1, ch, s, iv, h, out: h ? 2 : iv ? 1 : 0 });
+  }
+  // Layout-only randomness (positions in the cloud, stagger), separate from the data stream.
+  const lr = Lab.rng(311);
+  people.forEach((p) => { p.ru = Math.sqrt(lr()); p.rt = lr() * 2 * Math.PI; p.lag = lr(); });
+
+  const BAND = [70, 84];
+  const byCh = [0, 1, 2].map((c) => people.filter((p) => p.ch === c));
+  const hiresBy = byCh.map((g) => g.filter((p) => p.h));
+  const bandBy = byCh.map((g) => g.filter((p) => p.s >= BAND[0] && p.s <= BAND[1]));
+  const med = (arr) => d3.median(arr);
+  const totalH = d3.sum(hiresBy, (g) => g.length);
+  const minH0 = d3.min(hiresBy[0], (p) => p.s);
+  const brate = bandBy.map((g) => g.filter((p) => p.h).length / g.length);
+
+  const K = {
+    n0: Lab.fmt.int(byCh[0].length), n1: Lab.fmt.int(byCh[1].length), n2: Lab.fmt.int(byCh[2].length),
+    share1: Lab.fmt.pct(byCh[1].length / N),
+    hires: Lab.fmt.int(totalH),
+    hshare1: Lab.fmt.pct(hiresBy[1].length / totalH),
+    rate0: Lab.fmt.pct1(hiresBy[0].length / byCh[0].length),
+    rate1: Lab.fmt.pct1(hiresBy[1].length / byCh[1].length),
+    rate2: Lab.fmt.pct1(hiresBy[2].length / byCh[2].length),
+    med0: med(byCh[0].map((p) => p.s)), med1: med(byCh[1].map((p) => p.s)), med2: med(byCh[2].map((p) => p.s)),
+    mh0: med(hiresBy[0].map((p) => p.s)), mh1: med(hiresBy[1].map((p) => p.s)),
+    minh0: minH0,
+    below1: hiresBy[1].filter((p) => p.s < minH0).length,
+    bandn: Lab.fmt.int(d3.sum(bandBy, (g) => g.length)),
+    brate0: Lab.fmt.pct(brate[0]), brate1: Lab.fmt.pct(brate[1]), brate2: Lab.fmt.pct(brate[2]),
+    ratio: d3.format(".1f")(brate[1] / brate[0]),
+  };
+  document.querySelectorAll("[data-k]").forEach((el) => { el.textContent = K[el.dataset.k]; });
+
+  /* ---------- table twin ---------- */
+  Lab.tableView(document.getElementById("table-host"),
+    [
+      { key: "ch", label: "Channel" },
+      { key: "n", label: "Applicants", align: "r", format: Lab.fmt.int },
+      { key: "iv", label: "Interviewed", align: "r", format: Lab.fmt.int },
+      { key: "h", label: "Hired", align: "r", format: Lab.fmt.int },
+      { key: "rate", label: "Hire rate", align: "r", format: Lab.fmt.pct1 },
+      { key: "med", label: "Median score", align: "r" },
+      { key: "bn", label: "Scoring 70 to 84", align: "r", format: Lab.fmt.int },
+      { key: "brate", label: "Hire rate in band", align: "r", format: Lab.fmt.pct },
+    ],
+    [0, 1, 2].map((c) => ({
+      ch: CH[c], n: byCh[c].length, iv: byCh[c].filter((p) => p.iv).length, h: hiresBy[c].length,
+      rate: hiresBy[c].length / byCh[c].length, med: med(byCh[c].map((p) => p.s)),
+      bn: bandBy[c].length, brate: brate[c],
+    })),
+    "Show the cohort as a table");
+
+  /* ---------- states ---------- */
+  const STATES = [
+    { title: "Every applicant, unsorted", sub: "1,000 dots, one per applicant" },
+    { title: "Applicants by channel", sub: "Cluster area proportional to head count" },
+    { title: "Outcomes by channel", sub: "Unit bars, one dot per applicant, hires at the base" },
+    { title: "Assessment score by channel", sub: "Blind work-sample score, one lane per channel" },
+    { title: "Hires against the score", sub: "Hires lit, everyone else faded" },
+    { title: "Applicants scoring 70 to 84", sub: "Hire rate by channel at roughly equal scores" },
+  ];
+
+  const plot = document.getElementById("plot");
+  const svg = d3.select(plot).append("svg").attr("role", "img").attr("aria-label", "Unit chart of applicants");
+  const gAnnot = svg.append("g").attr("class", "annot-wrap");
+  const gDots = svg.append("g");
+  const circles = gDots.selectAll("circle").data(people).join("circle")
+    .attr("class", "dot mute").attr("r", 2)
+    .on("mouseenter mousemove", (event, d) => {
+      if (+d3.select(event.currentTarget).style("opacity") < 0.05) return;
+      Lab.tooltip.show(event, `<strong>Applicant ${d.id}</strong><br><span class="tt-k">Channel</span> ${CH[d.ch]}<br><span class="tt-k">Score</span> ${d.s}<br><span class="tt-k">Outcome</span> ${OUT[d.out]}`);
+    })
+    .on("mouseleave", () => Lab.tooltip.hide());
+
+  let L = null;   // current layouts
+  let cur = -1;
+
+  function layouts(W, H) {
+    const m = { t: 30, r: 14, b: 40, l: 14 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const rBase = Math.max(1.6, Math.min(3.3, Math.sqrt((iw * ih) / N) / 6.5));
+    const out = [];
+
+    // 0: cloud
+    const cx = m.l + iw / 2, cy = m.t + ih / 2;
+    out[0] = { r: rBase, pos: people.map((p) => [cx + (iw / 2 - rBase) * p.ru * Math.cos(p.rt), cy + (ih / 2 - rBase) * p.ru * Math.sin(p.rt)]) };
+
+    // 1: phyllotaxis cluster per channel
+    {
+      const horiz = W >= 520;
+      const nMax = d3.max(byCh, (g) => g.length);
+      const slotW = horiz ? iw / 3 : iw, slotH = horiz ? ih : ih / 3;
+      const Rmax = Math.min(slotW / 2 - 8, slotH / 2 - 16);
+      let c = 1.15 * (rBase + 0.6);
+      if (c * Math.sqrt(nMax) > Rmax) c = Rmax / Math.sqrt(nMax);
+      const r = Math.max(1.1, Math.min(rBase, c / 1.15 - 0.6));
+      const golden = Math.PI * (3 - Math.sqrt(5));
+      const pos = new Array(N), centers = [];
+      byCh.forEach((g, k) => {
+        const ccx = horiz ? m.l + slotW * (k + 0.5) : m.l + iw / 2;
+        const ccy = horiz ? m.t + ih / 2 + 8 : m.t + slotH * (k + 0.5) + 8;
+        g.forEach((p, j) => {
+          const rr = c * Math.sqrt(j + 0.5), a = j * golden;
+          pos[p.id - 1] = [ccx + rr * Math.cos(a), ccy + rr * Math.sin(a)];
+        });
+        centers.push({ x: ccx, y: ccy, R: c * Math.sqrt(g.length) });
+      });
+      out[1] = { r, pos, centers };
+    }
+
+    // 2 and 5: unit bars (waffle columns) per channel, hires first at the base
+    function unitBars(groups, sortFn, rCap) {
+      const gap = Math.max(14, iw * 0.06);
+      const gw = (iw - 2 * gap) / 3;
+      const top = 44, bottom = 22;
+      const hb = ih - top - bottom;
+      const nMax = d3.max(groups, (g) => g.length);
+      let best = { s: 0, cols: 10 };
+      for (let cols = 5; cols <= 40; cols++) {
+        const s = Math.min(gw / cols, hb / Math.ceil(nMax / cols));
+        if (s > best.s) best = { s, cols };
+      }
+      const s = Math.min(best.s, rCap * 2.6), cols = best.cols;
+      const base = m.t + top + hb;
+      const pos = new Array(N), meta = [];
+      groups.forEach((g, k) => {
+        const bw = cols * s;
+        const x0 = m.l + k * (gw + gap) + (gw - bw) / 2;
+        g.slice().sort(sortFn).forEach((p, j) => {
+          const col = j % cols, row = Math.floor(j / cols);
+          pos[p.id - 1] = [x0 + col * s + s / 2, base - row * s - s / 2];
+        });
+        meta.push({ x0, bw, top: base - Math.ceil(g.length / cols) * s, base });
+      });
+      return { r: Math.max(1.1, s * 0.4), pos, meta, base };
+    }
+    const byOutcome = (a, b) => b.out - a.out || b.s - a.s;
+    out[2] = unitBars(byCh, byOutcome, rBase * 1.25);
+
+    // 3 and 4: beeswarm by score, one lane per channel
+    {
+      const x = d3.scaleLinear([25, 100], [m.l + 4, m.l + iw - 4]);
+      const laneH = (ih - 8) / 3;
+      const r = Math.max(1.3, Math.min(rBase, laneH / 40));
+      const nodes = people.map((p) => ({ p, tx: x(p.s), ty: m.t + laneH * (p.ch + 0.5) + 6, x: x(p.s), y: m.t + laneH * (p.ch + 0.5) + 6 + (p.lag - 0.5) * 4 }));
+      const sim = d3.forceSimulation(nodes)
+        .force("x", d3.forceX((d) => d.tx).strength(0.9))
+        .force("y", d3.forceY((d) => d.ty).strength(0.07))
+        .force("c", d3.forceCollide(r + 0.35).iterations(2))
+        .stop();
+      for (let i = 0; i < 140; i++) sim.tick();
+      const pos = new Array(N);
+      nodes.forEach((n) => {
+        const lt = m.t + laneH * n.p.ch + 18, lb = m.t + laneH * (n.p.ch + 1) - 2;
+        pos[n.p.id - 1] = [n.x, Math.max(lt + r, Math.min(lb - r, n.y))];
+      });
+      out[3] = { r, pos, x, laneH, top: m.t, axisY: m.t + ih + 6 };
+      out[4] = { r: r * 1.2, pos, x, laneH, top: m.t, axisY: m.t + ih + 6 };
+    }
+
+    // 5: band subset as unit bars; everyone else stays at their beeswarm spot, invisible
+    {
+      const ub = unitBars(bandBy, byOutcome, rBase * 1.8);
+      const pos = out[3].pos.slice();
+      bandBy.forEach((g) => g.forEach((p) => { pos[p.id - 1] = ub.pos[p.id - 1]; }));
+      out[5] = Object.assign({}, ub, { pos });
+    }
+    return { W, H, m, iw, ih, out };
+  }
+
+  /* per-state styling: class and opacity for each dot */
+  function look(state, p) {
+    const col = "dot c" + p.ch;
+    switch (state) {
+      case 0: return ["dot mute", 0.7];
+      case 1: return [col, 0.88];
+      case 2: return p.h ? [col, 1] : ["dot mute", p.iv ? 0.55 : 0.2];
+      case 3: return [col, 0.8];
+      case 4: return p.h ? [col, 1] : ["dot mute", 0.16];
+      case 5: {
+        const inBand = p.s >= BAND[0] && p.s <= BAND[1];
+        if (!inBand) return ["dot mute off", 0];
+        return p.h ? [col, 1] : ["dot mute", 0.3];
+      }
+    }
+  }
+
+  function drawAnnot(state) {
+    gAnnot.selectAll("*").interrupt().remove();
+    const g = gAnnot.append("g").attr("class", "annot").style("opacity", 0);
+    const S = L.out[state], m = L.m;
+    if (state === 1) {
+      S.centers.forEach((c, k) => {
+        const t = g.append("text").attr("x", c.x).attr("y", c.y - c.R - 8).attr("text-anchor", "middle");
+        t.append("tspan").attr("class", "label-strong").text(CH[k]);
+        t.append("tspan").attr("class", "label").text(" · " + Lab.fmt.int(byCh[k].length));
+      });
+    }
+    if (state === 2 || state === 5) {
+      const groups = state === 2 ? byCh : bandBy;
+      S.meta.forEach((mt, k) => {
+        const n = groups[k].length, h = groups[k].filter((p) => p.h).length;
+        const cx = mt.x0 + mt.bw / 2;
+        g.append("line").attr("class", "base").attr("x1", mt.x0 - 2).attr("x2", mt.x0 + mt.bw + 2).attr("y1", mt.base + 1.5).attr("y2", mt.base + 1.5);
+        g.append("text").attr("class", "label-strong").attr("x", cx).attr("y", mt.base + 17).attr("text-anchor", "middle").text(CH[k]);
+        g.append("text").attr("class", "label-strong").attr("x", cx).attr("y", mt.top - 22).attr("text-anchor", "middle")
+          .text(`${d3.format(state === 2 ? ".1%" : ".0%")(h / n)} hired`);
+        g.append("text").attr("class", "label").attr("x", cx).attr("y", mt.top - 8).attr("text-anchor", "middle")
+          .text(`${h} of ${Lab.fmt.int(n)}`);
+      });
+    }
+    if (state === 3 || state === 4) {
+      const x = S.x;
+      const ax = g.append("g").attr("class", "axis").attr("transform", `translate(0,${S.axisY})`)
+        .call(d3.axisBottom(x).tickValues([30, 40, 50, 60, 70, 80, 90, 100]).tickSize(4));
+      ax.select(".domain").remove();
+      g.append("text").attr("class", "label").attr("x", x(100)).attr("y", S.axisY + 30).attr("text-anchor", "end").text("Assessment score");
+      [0, 1, 2].forEach((k) => {
+        const yTop = S.top + S.laneH * k;
+        const src = state === 3 ? byCh[k] : hiresBy[k];
+        const md = med(src.map((p) => p.s));
+        g.append("line").attr("class", "base").attr("x1", x(25)).attr("x2", x(100)).attr("y1", yTop + S.laneH - 1).attr("y2", yTop + S.laneH - 1)
+          .style("display", k === 2 ? "none" : null);
+        g.append("text").attr("class", "label-strong").attr("x", x(25)).attr("y", yTop + 12).text(CH[k]);
+        const lbl = state === 3 ? `median ${md}` : `${src.length} hires, median ${md}`;
+        const lx = x(md), flip = lx + 5 + lbl.length * 6.3 > x(100);
+        g.append("line").attr("class", "rule").attr("x1", lx).attr("x2", lx).attr("y1", yTop + 17).attr("y2", yTop + S.laneH - 4);
+        g.append("text").attr("class", "label").attr("x", flip ? lx - 5 : lx + 5).attr("y", yTop + 12)
+          .attr("text-anchor", flip ? "end" : "start").text(lbl);
+      });
+      if (state === 4) {
+        const lx = x(minH0);
+        g.append("line").attr("class", "dash").attr("x1", lx).attr("x2", lx).attr("y1", S.top + 16).attr("y2", S.axisY + 18);
+        g.append("text").attr("class", "label").attr("x", lx - 6).attr("y", S.axisY + 30).attr("text-anchor", "end")
+          .text(`lowest job-board hire, ${minH0}`);
+      }
+    }
+    if (state === 0) {
+      g.append("text").attr("class", "label").attr("x", L.W - m.r).attr("y", L.H - 10).attr("text-anchor", "end").text("1,000 applicants");
+    }
+    g.transition().delay(Lab.reducedMotion() ? 0 : 450).duration(Lab.reducedMotion() ? 0 : 350).style("opacity", 1);
+  }
+
+  const legendEl = document.getElementById("g-legend");
+  function legend(state) {
+    const sw = (k, suffix) => `<span><span class="swatch" style="background: var(--series-${k + 1})"></span>${CH[k]}${suffix}</span>`;
+    const ring = (op, t) => `<span><span class="ring" style="background: var(--text-muted); opacity: ${op}"></span>${t}</span>`;
+    const chs = (suffix) => [0, 1, 2].map((k) => sw(k, suffix)).join("");
+    if (state === 0) legendEl.innerHTML = "<span>Hover a dot for the applicant</span>";
+    else if (state === 2) legendEl.innerHTML = chs(" hire") + ring(0.55, "Interviewed") + ring(0.2, "Screened out");
+    else if (state === 4 || state === 5) legendEl.innerHTML = chs(" hire") + ring(state === 4 ? 0.16 : 0.3, "Not hired");
+    else legendEl.innerHTML = chs("");
+  }
+
+  const stepEls = Array.from(document.querySelectorAll(".step"));
+  const titleEl = document.getElementById("g-title"), subEl = document.getElementById("g-sub"), numEl = document.getElementById("stepnum");
+  const prevBtn = document.getElementById("prev"), nextBtn = document.getElementById("next");
+
+  function go(state, instant) {
+    if (state === cur && !instant) return;
+    cur = state;
+    const S = L.out[state];
+    const rm = Lab.reducedMotion() || instant;
+    circles.each(function (p) {
+      const [cls, op] = look(state, p);
+      this.setAttribute("class", cls);
+      this.style.opacity = op;
+    });
+    const t = circles.interrupt().transition()
+      .duration(rm ? 0 : 950)
+      .delay((p) => (rm ? 0 : p.lag * 320))
+      .ease(d3.easeCubicInOut);
+    t.attr("cx", (p) => S.pos[p.id - 1][0]).attr("cy", (p) => S.pos[p.id - 1][1]).attr("r", S.r);
+    drawAnnot(state);
+    legend(state);
+    titleEl.textContent = STATES[state].title;
+    subEl.textContent = STATES[state].sub;
+    numEl.textContent = `${state + 1} of ${STATES.length}`;
+    prevBtn.disabled = state === 0;
+    nextBtn.disabled = state === STATES.length - 1;
+    stepEls.forEach((el, i) => el.classList.toggle("active", i === state));
+  }
+
+  /* ---------- sizing ---------- */
+  Lab.responsive(() => {
+    const W = Math.max(280, plot.clientWidth || 600), H = Math.max(260, plot.clientHeight || 480);
+    svg.attr("viewBox", `0 0 ${W} ${H}`);
+    L = layouts(W, H);
+    const s = cur < 0 ? 0 : cur;
+    cur = -1;
+    go(s, true);
+  });
+
+  /* ---------- scroll triggers ---------- */
+  let lockUntil = 0;
+  if ("IntersectionObserver" in window) {
+    const io = new IntersectionObserver((entries) => {
+      if (Date.now() < lockUntil) return;
+      entries.forEach((e) => { if (e.isIntersecting) go(+e.target.dataset.step); });
+    }, { rootMargin: "-45% 0px -54% 0px", threshold: 0 });
+    stepEls.forEach((el) => io.observe(el));
+  }
+
+  /* ---------- buttons and keys, for people who do not scroll ---------- */
+  function jump(state) {
+    state = Math.max(0, Math.min(STATES.length - 1, state));
+    lockUntil = Date.now() + 1100;
+    go(state);
+    const el = stepEls[state];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: Lab.reducedMotion() ? "auto" : "smooth" });
+  }
+  prevBtn.addEventListener("click", () => jump(cur - 1));
+  nextBtn.addEventListener("click", () => jump(cur + 1));
+  document.getElementById("graphic").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") { e.preventDefault(); jump(cur + 1); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); jump(cur - 1); }
+  });
+})();
+</script>
+</body>
+</html>

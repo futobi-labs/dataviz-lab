@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uncertainty you can feel · Data Viz Lab</title>
+<meta name="description" content="Hypothetical outcome plots, a draggable quantile dotplot and a fan chart versus spaghetti paths, each next to the conventional view.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; }
+  @media (max-width: 720px) { .pair { grid-template-columns: 1fr; } }
+  .panel-h { margin: 0 0 4px; font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
+  .readout { margin: 10px 0 0; font-size: 0.95rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .readout strong { color: var(--text-primary); font-size: 1.25rem; font-weight: 650; }
+  .controls output { font-variant-numeric: tabular-nums; color: var(--text-primary); min-width: 4.2em; display: inline-block; }
+  .controls input[type="range"] { width: min(220px, 48vw); }
+  .hit { fill: transparent; cursor: ew-resize; touch-action: none; }
+  .hover-rule { stroke: var(--text-secondary); stroke-width: 1; pointer-events: none; }
+  svg text.label, svg text.label-strong { pointer-events: none; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/" aria-current="true">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">New data viz</p>
+  <h1>Uncertainty you can feel</h1>
+  <p class="lede">An error bar is a summary of a distribution that most readers then decode as a range of equally likely values, or ignore. These three figures put the distribution back in front of the reader as frequencies, outcomes and paths, each beside the conventional view it replaces.</p>
+
+  <h2>Hypothetical outcome plots</h2>
+  <div class="figure" id="fig-hop">
+    <p class="figure-title">Variant B looks better. How often is it actually ahead?</p>
+    <p class="figure-sub">Checkout conversion in a fictional A/B test. A: 248 of 6,050 sessions. B: 279 of 6,010. Same axis on both panels.</p>
+    <div class="controls">
+      <button type="button" id="hop-play" aria-pressed="true">Pause</button>
+      <label>Speed
+        <select id="hop-speed">
+          <option value="800">Slow, 800 ms</option>
+          <option value="400" selected>Normal, 400 ms</option>
+          <option value="200">Fast, 200 ms</option>
+        </select>
+      </label>
+      <button type="button" id="hop-step">One draw</button>
+      <button type="button" id="hop-reset">Reset tally</button>
+    </div>
+    <div class="pair">
+      <div><p class="panel-h">Conventional: mean and 95% interval</p><div id="hop-static"></div></div>
+      <div><p class="panel-h">Hypothetical outcomes: one plausible world per frame</p><div id="hop-anim"></div></div>
+    </div>
+    <p class="readout" id="hop-tally" aria-live="off"></p>
+  </div>
+
+  <h2>Quantile dotplot</h2>
+  <div class="figure" id="fig-qdp">
+    <p class="figure-title">When is the 14 coming?</p>
+    <p class="figure-sub">Predicted arrival of a fictional bus at Elm St. Each dot is an equally likely outcome. Drag the line, or use the slider, to set the latest arrival that still makes your connection.</p>
+    <div class="controls">
+      <span>Dots</span>
+      <button type="button" class="qdp-n" data-n="20" aria-pressed="true">20</button>
+      <button type="button" class="qdp-n" data-n="50" aria-pressed="false">50</button>
+      <label for="qdp-t">Latest arrival</label>
+      <input type="range" id="qdp-t" min="1" max="28" step="1" value="13">
+      <output id="qdp-out" for="qdp-t">13 min</output>
+    </div>
+    <p class="readout" id="qdp-read" aria-live="polite"></p>
+    <div id="qdp"></div>
+  </div>
+
+  <h2>Fan chart or spaghetti</h2>
+  <div class="figure" id="fig-fan">
+    <p class="figure-title">Weekly demand, 52 weeks of history and a 26-week forecast</p>
+    <p class="figure-sub">Fictional product, units per week. Both views come from the same 400 simulated futures.</p>
+    <div class="controls" role="group" aria-label="Forecast view">
+      <button type="button" class="fan-mode" data-mode="fan" aria-pressed="true">Fan of quantile bands</button>
+      <button type="button" class="fan-mode" data-mode="paths" aria-pressed="false">60 sample paths</button>
+    </div>
+    <div id="fan"></div>
+    <div id="fan-table"></div>
+  </div>
+
+  <div class="notes">
+    <h3>Notes</h3>
+    <ul>
+      <li><strong>The static panel invites the classic mistake.</strong> The two 95% intervals overlap, and many readers, researchers included, take overlap to mean no difference (Belia, Fidler, Williams and Cumming, 2005). Under the same model, the probability that B beats A is <span id="pba"></span>. The HOPs panel lets you count your way to that number without being told it. Hullman, Resnick and Adar (2015) found exactly this advantage for judging which of two variables is larger.</li>
+      <li><strong>HOPs mislead when the frame rate is wrong or the frame escapes.</strong> Too fast and frames blur into a smear; too slow and people anchor on whatever they saw first. A screenshot freezes one random world and presents it as the answer. Frames jump with no tween on purpose: interpolating between draws invents outcomes nobody sampled. Kale, Nguyen, Kay and Hullman (2019) extend the idea to trends.</li>
+      <li><strong>Quantile dotplots turn probability into counting.</strong> "Fourteen of twenty" is a frequency, which people reason about better than a density (Kay, Kola, Hullman and Munson, 2016, the "When (ish) is my bus?" study; Fernandes et al., 2018, showed better transit decisions with them). The cost is resolution: twenty dots cannot express a 1-in-100 tail, and the snapped deadline hides that the model's own answer sits between dots.</li>
+      <li><strong>Fans read as walls.</strong> The outer band edge gets treated as a bound, the median line gets treated as the forecast, and nothing in a band says how any single future moves week to week. Spaghetti fixes the path problem and creates another: readers over-weight one salient line, as Ruginski et al. (2016) found with hurricane ensembles versus the cone.</li>
+      <li><strong>Pick by the decision, not the aesthetics.</strong> A recurring argument in this literature, Correll's especially, is that the right uncertainty display depends on the question. Ranking two options: HOPs. A threshold decision: dotplot. Planning capacity against a range: the fan, with its percentiles labeled.</li>
+    </ul>
+  </div>
+  <p class="source">Source: synthetic. A/B counts are invented, with draws from a normal approximation to each variant's posterior conversion rate. Bus arrival is a log-normal prediction with a median of 11 minutes. Demand history and forecast paths are seeded log-scale random walks with annual seasonality.</p>
+  <p><a href="./">← New data viz</a></p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const rm = Lab.reducedMotion();
+
+  /* Acklam's rational approximation to the inverse standard normal CDF. */
+  function qnorm(p) {
+    const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+    const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+    const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+    const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+    const pl = 0.02425;
+    let q, r;
+    if (p < pl) { q = Math.sqrt(-2 * Math.log(p)); return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+    if (p > 1 - pl) { q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+    q = p - 0.5; r = q * q;
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+  }
+  /* Standard normal CDF (Abramowitz and Stegun 7.1.26 on erf). */
+  function pnorm(z) {
+    const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+    const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z / 2);
+    return z >= 0 ? (1 + y) / 2 : (1 - y) / 2;
+  }
+
+  /* =====================================================================
+     (a) Hypothetical outcome plots
+     ===================================================================== */
+  (function () {
+    const V = [
+      { k: "A", conv: 248, n: 6050, slot: 1 },
+      { k: "B", conv: 279, n: 6010, slot: 2 },
+    ];
+    V.forEach((v) => { v.p = v.conv / v.n; v.se = Math.sqrt(v.p * (1 - v.p) / v.n); });
+    const seDiff = Math.hypot(V[0].se, V[1].se);
+    document.getElementById("pba").textContent = Lab.fmt.pct(pnorm((V[1].p - V[0].p) / seDiff));
+
+    const rand = Lab.rng(4021);
+    let draw = [V[0].p, V[1].p], nDraws = 0, nB = 0;
+    const H = 150, m = { t: 14, r: 18, b: 30, l: 26 };
+    const hosts = { s: d3.select("#hop-static"), a: d3.select("#hop-anim") };
+    let x, ticks;
+
+    function frame(svg, w) {
+      svg.selectAll("*").remove();
+      svg.attr("viewBox", `0 0 ${w} ${H}`).attr("width", w).attr("height", H);
+      svg.append("g").attr("class", "grid").attr("transform", `translate(0,${H - m.b})`)
+        .call(d3.axisBottom(x).ticks(5).tickSize(-(H - m.t - m.b)).tickFormat(""));
+      svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`)
+        .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format(".1%")).tickSizeOuter(0));
+      V.forEach((v, i) => svg.append("text").attr("class", "label-strong").attr("x", 4).attr("y", rowY(i) + 4).text(v.k));
+    }
+    const rowY = (i) => m.t + 26 + i * 50;
+
+    function render() {
+      const w = Math.max(260, Lab.width(document.getElementById("hop-static")) || 600);
+      x = d3.scaleLinear([0.032, 0.056], [m.l, w - m.r]).clamp(true);
+      const ss = hosts.s.selectAll("svg").data([0]).join("svg").attr("role", "img")
+        .attr("aria-label", "Mean conversion with 95% intervals: A 4.1%, B 4.6%, intervals overlap");
+      frame(ss, w);
+      V.forEach((v, i) => {
+        const y = rowY(i), lo = v.p - 1.96 * v.se, hi = v.p + 1.96 * v.se;
+        const g = ss.append("g").style("color", `var(--series-${v.slot})`);
+        g.append("line").attr("x1", x(lo)).attr("x2", x(hi)).attr("y1", y).attr("y2", y).style("stroke", "currentColor").style("stroke-width", 2);
+        [lo, hi].forEach((e) => g.append("line").attr("x1", x(e)).attr("x2", x(e)).attr("y1", y - 5).attr("y2", y + 5).style("stroke", "currentColor").style("stroke-width", 1.5));
+        g.append("circle").attr("cx", x(v.p)).attr("cy", y).attr("r", 4.5).style("fill", "currentColor");
+        ss.append("text").attr("class", "label").attr("x", x(v.p)).attr("y", y - 10).attr("text-anchor", "middle").text(Lab.fmt.pct1(v.p));
+        g.append("rect").attr("x", x(lo)).attr("y", y - 12).attr("width", x(hi) - x(lo)).attr("height", 24).style("fill", "transparent")
+          .on("mousemove", (e) => Lab.tooltip.show(e, `<strong>Variant ${v.k}</strong><br>${v.conv} of ${Lab.fmt.int(v.n)} converted<br><span class="tt-k">Mean</span> ${Lab.fmt.pct1(v.p)}<br><span class="tt-k">95% interval</span> ${Lab.fmt.pct1(lo)} to ${Lab.fmt.pct1(hi)}`))
+          .on("mouseleave", () => Lab.tooltip.hide());
+      });
+      const sa = hosts.a.selectAll("svg").data([0]).join("svg").attr("role", "img")
+        .attr("aria-label", "Animated draws of plausible conversion rates for A and B");
+      frame(sa, w);
+      ticks = sa.append("g").selectAll("line").data(V).join("line")
+        .attr("y1", (d, i) => rowY(i) - 15).attr("y2", (d, i) => rowY(i) + 15)
+        .style("stroke", (d) => `var(--series-${d.slot})`).style("stroke-width", 3).style("stroke-linecap", "round");
+      paint();
+    }
+    function paint() {
+      ticks.attr("x1", (d, i) => x(draw[i])).attr("x2", (d, i) => x(draw[i]));
+      const t = document.getElementById("hop-tally");
+      t.innerHTML = nDraws === 0
+        ? "Press Play or One draw to start the tally."
+        : `B ahead in <strong>${nB} of ${nDraws}</strong> draws (${Lab.fmt.pct(nB / nDraws)}). This frame: A ${Lab.fmt.pct1(draw[0])}, B ${Lab.fmt.pct1(draw[1])}.`;
+    }
+    function step() {
+      draw = V.map((v) => v.p + v.se * Lab.randn(rand));
+      nDraws++; if (draw[1] > draw[0]) nB++;
+      paint();
+    }
+
+    const playBtn = document.getElementById("hop-play"), speedSel = document.getElementById("hop-speed");
+    let timer = null;
+    function setPlaying(on) {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (on) timer = setInterval(step, +speedSel.value);
+      playBtn.textContent = on ? "Pause" : "Play";
+      playBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    playBtn.addEventListener("click", () => setPlaying(!timer));
+    speedSel.addEventListener("change", () => { if (timer) setPlaying(true); });
+    document.getElementById("hop-step").addEventListener("click", () => { setPlaying(false); step(); });
+    document.getElementById("hop-reset").addEventListener("click", () => { nDraws = 0; nB = 0; paint(); });
+    document.addEventListener("visibilitychange", () => { if (document.hidden && timer) setPlaying(false); });
+
+    Lab.responsive(render);
+    setPlaying(!rm);   // reduced motion: start paused, step on demand
+  })();
+
+  /* =====================================================================
+     (b) Quantile dotplot with a draggable deadline
+     ===================================================================== */
+  (function () {
+    const MU = Math.log(11), SIG = 0.36, XMAX = 28;
+    let nDots = 20, T = 13;
+    const host = d3.select("#qdp");
+    const range = document.getElementById("qdp-t"), out = document.getElementById("qdp-out"), read = document.getElementById("qdp-read");
+    const m = { t: 30, r: 16, b: 34, l: 16 };
+    let S = null;
+
+    function quantiles(n) { return d3.range(n).map((i) => Math.exp(MU + SIG * qnorm((i + 0.5) / n))); }
+
+    function render() {
+      const w = Math.max(280, Lab.width(document.getElementById("qdp")) || 600);
+      const x = d3.scaleLinear([0, XMAX], [m.l, w - m.r]);
+      const ppm = x(1) - x(0);
+      const bin = nDots === 50 && ppm >= 18 ? 0.5 : 1;
+      const q = quantiles(nDots);
+      const counts = new Map();
+      const dots = q.map((v, i) => {
+        const k = Math.floor(v / bin);
+        const j = counts.get(k) || 0; counts.set(k, j + 1);
+        return { v, i, k, j, end: (k + 1) * bin };
+      });
+      const d = Math.min(ppm * bin, 24);
+      const maxStack = d3.max(Array.from(counts.values()));
+      const H = m.t + maxStack * d + m.b + 6;
+      const base = H - m.b;
+      S = { x, bin, dots, d, H, base, w };
+
+      const svg = host.selectAll("svg").data([0]).join("svg").attr("viewBox", `0 0 ${w} ${H}`).attr("width", w).attr("height", H)
+        .attr("role", "img").attr("aria-label", `Quantile dotplot of ${nDots} predicted arrival times`);
+      svg.selectAll("*").remove();
+      svg.append("g").attr("class", "axis").attr("transform", `translate(0,${base + 2})`)
+        .call(d3.axisBottom(x).tickValues(d3.range(0, XMAX + 1, 4)).tickFormat((v) => v + " min").tickSizeOuter(0));
+      S.gDots = svg.append("g").selectAll("circle").data(dots).join("circle")
+        .attr("cx", (p) => x(p.k * bin + bin / 2)).attr("cy", (p) => base - p.j * d - d / 2)
+        .attr("r", Math.max(2, d / 2 - 1)).style("stroke-width", 1.2);
+      S.rule = svg.append("line").style("stroke", "var(--text-primary)").style("stroke-width", 1.5);
+      S.knob = svg.append("circle").attr("r", 6).style("fill", "var(--text-primary)");
+      S.lab = svg.append("text").attr("class", "label-strong").attr("y", 12);
+      svg.append("rect").attr("class", "hit").attr("x", m.l).attr("y", 0).attr("width", w - m.l - m.r).attr("height", base)
+        .call(d3.drag().on("start drag", (e) => setT(Math.round(x.invert(e.x) / bin) * bin)));
+      paint();
+    }
+    function setT(v) {
+      T = Math.max(S.bin, Math.min(XMAX, v));
+      range.value = T;
+      paint();
+    }
+    function paint() {
+      const { x, base } = S;
+      const made = S.dots.filter((p) => p.end <= T + 1e-9).length;
+      S.gDots
+        .style("fill", (p) => (p.end <= T + 1e-9 ? "var(--series-1)" : "none"))
+        .style("stroke", (p) => (p.end <= T + 1e-9 ? "var(--series-1)" : "var(--text-muted)"));
+      const tx = x(T);
+      S.rule.attr("x1", tx).attr("x2", tx).attr("y1", 22).attr("y2", base + 2);
+      S.knob.attr("cx", tx).attr("cy", 22);
+      const right = tx > S.w - 150;
+      S.lab.attr("x", right ? tx - 10 : tx + 10).attr("text-anchor", right ? "end" : "start").text(`arrives by ${d3.format("g")(T)} min`);
+      const label = d3.format("g")(T) + " min";
+      out.textContent = label;
+      const model = pnorm((Math.log(T) - MU) / SIG);
+      read.innerHTML = `<strong>${made} of ${nDots}</strong> chances you make it. The continuous model says ${Lab.fmt.pct(model)}.`;
+    }
+    range.addEventListener("input", () => setT(+range.value));
+    document.querySelectorAll(".qdp-n").forEach((b) => b.addEventListener("click", () => {
+      nDots = +b.dataset.n;
+      document.querySelectorAll(".qdp-n").forEach((o) => o.setAttribute("aria-pressed", o === b ? "true" : "false"));
+      render();
+      range.step = S.bin;
+      setT(Math.round(T / S.bin) * S.bin);
+    }));
+    Lab.responsive(() => { render(); range.step = S.bin; setT(Math.round(T / S.bin) * S.bin); });
+  })();
+
+  /* =====================================================================
+     (c) Fan chart versus spaghetti, from one set of simulated futures
+     ===================================================================== */
+  (function () {
+    const rand = Lab.rng(8812);
+    const HIST = 52, FC = 26, NP = 400, SHOW = 60;
+    const season = (t) => 0.09 * Math.sin((2 * Math.PI * (t + 8)) / 52);
+    const hist = [];
+    let lv = Math.log(1180);
+    for (let t = -HIST + 1; t <= 0; t++) {
+      lv += 0.002 + 0.018 * Lab.randn(rand);
+      hist.push({ t, v: Math.exp(lv + season(t) + 0.03 * Lab.randn(rand)) });
+    }
+    const lv0 = lv;
+    const paths = d3.range(NP).map(() => {
+      let l = lv0; const pts = [{ t: 0, v: hist[hist.length - 1].v }];
+      for (let t = 1; t <= FC; t++) { l += 0.002 + 0.028 * Lab.randn(rand); pts.push({ t, v: Math.exp(l + season(t) + 0.03 * Lab.randn(rand)) }); }
+      return pts;
+    });
+    const Q = d3.range(FC + 1).map((t) => {
+      const vs = paths.map((p) => p[t].v).sort(d3.ascending);
+      const q = (p) => d3.quantileSorted(vs, p);
+      return { t, q025: q(0.025), q10: q(0.10), q25: q(0.25), q50: q(0.5), q75: q(0.75), q90: q(0.90), q975: q(0.975) };
+    });
+    const BANDS = [
+      { lo: "q025", hi: "q975", tok: "--seq-100", lab: "95%" },
+      { lo: "q10", hi: "q90", tok: "--seq-200", lab: "80%" },
+      { lo: "q25", hi: "q75", tok: "--seq-300", lab: "50%" },
+    ];
+    let mode = "fan";
+    const host = d3.select("#fan");
+    let G = null;
+
+    Lab.tableView(document.getElementById("fan-table"),
+      [
+        { key: "t", label: "Week ahead", align: "r", format: (v) => "+" + v },
+        { key: "q025", label: "2.5th", align: "r", format: Lab.fmt.int },
+        { key: "q10", label: "10th", align: "r", format: Lab.fmt.int },
+        { key: "q25", label: "25th", align: "r", format: Lab.fmt.int },
+        { key: "q50", label: "Median", align: "r", format: Lab.fmt.int },
+        { key: "q75", label: "75th", align: "r", format: Lab.fmt.int },
+        { key: "q90", label: "90th", align: "r", format: Lab.fmt.int },
+        { key: "q975", label: "97.5th", align: "r", format: Lab.fmt.int },
+      ], Q.slice(1), "Show forecast percentiles as a table");
+
+    function render() {
+      const w = Math.max(300, Lab.width(document.getElementById("fan")) || 600);
+      const H = Math.round(Math.max(260, Math.min(420, w * 0.5)));
+      const m = { t: 26, r: 54, b: 30, l: 46 };
+      const x = d3.scaleLinear([-HIST + 1, FC], [m.l, w - m.r]);
+      const yMax = d3.max([d3.max(Q, (d) => d.q975), d3.max(paths.slice(0, SHOW), (p) => d3.max(p, (d) => d.v)), d3.max(hist, (d) => d.v)]);
+      const yMin = d3.min([d3.min(Q, (d) => d.q025), d3.min(paths.slice(0, SHOW), (p) => d3.min(p, (d) => d.v)), d3.min(hist, (d) => d.v)]);
+      const y = d3.scaleLinear([yMin * 0.95, yMax * 1.02], [H - m.b, m.t]).nice();
+
+      const svg = host.selectAll("svg").data([0]).join("svg").attr("viewBox", `0 0 ${w} ${H}`).attr("width", w).attr("height", H)
+        .attr("role", "img").attr("aria-label", "Weekly demand history with a 26-week forecast");
+      svg.selectAll("*").remove();
+      svg.append("g").attr("class", "grid").attr("transform", `translate(${m.l},0)`)
+        .call(d3.axisLeft(y).ticks(5).tickSize(-(w - m.l - m.r)).tickFormat(""));
+      svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`)
+        .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format(",")).tickSize(0).tickPadding(6)).select(".domain").remove();
+      svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`)
+        .call(d3.axisBottom(x).tickValues([-52, -39, -26, -13, 0, 13, 26]).tickFormat((v) => (v > 0 ? "+" + v : v === 0 ? "now" : v)).tickSizeOuter(0));
+      svg.append("text").attr("class", "label").attr("x", m.l).attr("y", 12).text("Units per week");
+      svg.append("line").attr("x1", x(0)).attr("x2", x(0)).attr("y1", m.t - 4).attr("y2", H - m.b).style("stroke", "var(--axis)");
+      svg.append("text").attr("class", "label").attr("x", x(0) + 5).attr("y", m.t + 6).text("forecast");
+
+      const fan = svg.append("g").attr("class", "fan-layer");
+      BANDS.forEach((b) => {
+        fan.append("path").attr("d", d3.area((d) => x(d.t), (d) => y(d[b.lo]), (d) => y(d[b.hi]))(Q)).style("fill", `var(${b.tok})`);
+      });
+      fan.append("path").attr("d", d3.line((d) => x(d.t), (d) => y(d.q50))(Q))
+        .style("fill", "none").style("stroke", "var(--seq-600)").style("stroke-width", 1.5);
+      // direct band labels at the right edge, dodged so they never collide
+      const last = Q[Q.length - 1];
+      const lab = BANDS.map((b) => ({ t: b.lab, y: y(last[b.hi]) + 4 }));
+      lab.push({ t: "median", y: y(last.q50) + 4 });
+      lab.sort((a, b) => a.y - b.y);
+      for (let i = 1; i < lab.length; i++) if (lab[i].y - lab[i - 1].y < 12) lab[i].y = lab[i - 1].y + 12;
+      lab.forEach((l) => fan.append("text").attr("class", "label").attr("x", x(FC) + 4).attr("y", l.y).style("font-size", "10px").text(l.t));
+
+      const sp = svg.append("g").attr("class", "paths-layer");
+      sp.selectAll("path").data(paths.slice(0, SHOW)).join("path")
+        .attr("d", d3.line((d) => x(d.t), (d) => y(d.v)))
+        .style("fill", "none").style("stroke", "var(--seq-500)").style("stroke-width", 1).style("stroke-opacity", 0.32);
+      sp.append("text").attr("class", "label").attr("x", x(FC) + 4).attr("y", y(last.q50) + 4).style("font-size", "10px").text("60 paths");
+
+      svg.append("path").attr("d", d3.line((d) => x(d.t), (d) => y(d.v))(hist))
+        .style("fill", "none").style("stroke", "var(--text-secondary)").style("stroke-width", 1.4);
+
+      const rule = svg.append("line").attr("class", "hover-rule").attr("y1", m.t).attr("y2", H - m.b).style("opacity", 0);
+      svg.append("rect").attr("x", m.l).attr("y", m.t).attr("width", w - m.l - m.r).attr("height", H - m.t - m.b).style("fill", "transparent")
+        .on("pointermove", (e) => {
+          const t = Math.round(x.invert(d3.pointer(e)[0]));
+          rule.attr("x1", x(t)).attr("x2", x(t)).style("opacity", 1);
+          let html;
+          if (t <= 0) {
+            const h = hist.find((d) => d.t === t);
+            html = `<strong>Week ${t === 0 ? "0 (now)" : t}</strong><br><span class="tt-k">Actual</span> ${Lab.fmt.int(h.v)}`;
+          } else {
+            const q = Q[t];
+            html = `<strong>Week +${t}</strong><br><span class="tt-k">Median</span> ${Lab.fmt.int(q.q50)}<br><span class="tt-k">50%</span> ${Lab.fmt.int(q.q25)} to ${Lab.fmt.int(q.q75)}<br><span class="tt-k">80%</span> ${Lab.fmt.int(q.q10)} to ${Lab.fmt.int(q.q90)}<br><span class="tt-k">95%</span> ${Lab.fmt.int(q.q025)} to ${Lab.fmt.int(q.q975)}`;
+          }
+          Lab.tooltip.show(e, html);
+        })
+        .on("pointerleave", () => { rule.style("opacity", 0); Lab.tooltip.hide(); });
+
+      G = { fan, sp };
+      show(true);
+    }
+    function show(instant) {
+      const dur = instant || rm ? 0 : 450;
+      G.fan.interrupt().transition().duration(dur).style("opacity", mode === "fan" ? 1 : 0);
+      G.sp.interrupt().transition().duration(dur).style("opacity", mode === "paths" ? 1 : 0);
+    }
+    document.querySelectorAll(".fan-mode").forEach((b) => b.addEventListener("click", () => {
+      mode = b.dataset.mode;
+      document.querySelectorAll(".fan-mode").forEach((o) => o.setAttribute("aria-pressed", o === b ? "true" : "false"));
+      show(false);
+    }));
+    Lab.responsive(render);
+  })();
+})();
+</script>
+</body>
+</html>
