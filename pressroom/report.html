@@ -29,8 +29,8 @@
   .viz svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
 
   .t-a h2 { font: 600 1.45rem/1.1 var(--pr-display); letter-spacing: -0.02em; margin: 6px 0 4px; }
-  .slicer { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
-  .slicer .pr-chip { padding: 5px 7px; min-width: 2.6em; }
+  .slicer { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; margin-top: auto; }
+  .slicer .pr-chip { padding: 4px 0; font-size: 0.72rem; }
   .status-line { display: flex; gap: 8px; align-items: center; min-height: 26px; margin: 6px 0 8px; }
   .status-line button { font: 600 0.74rem var(--sans); color: var(--on); background: none; border: 0; text-decoration: underline; cursor: pointer; padding: 0; }
 
@@ -45,7 +45,9 @@
   .pr-legend button { font: inherit; color: inherit; background: none; border: 0; padding: 1px 0; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
   .pr-legend button[aria-pressed="true"] { color: var(--on); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
   .pr-legend .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
-  .incidents { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .incidents { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  .incidents .pr-chip { padding: 4px 8px; font-size: 0.72rem; }
+  .t-h { padding: 11px 14px; }
 
   /* build-note badges */
   .badge { position: absolute; top: 8px; right: 8px; z-index: 5; display: none;
@@ -228,8 +230,6 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
   const srcIds = WH.sources.map((s) => s.id);
   const srcVar = (id) => `var(--pr-s${WH.sourceIndex[id] + 1})`;
   const src = (id) => WH.sources[WH.sourceIndex[id]];
-  const firstOfYear = (k) => k === months[0] || k === months[months.length - 1] || monthShort(mDate(k)) === "Jan";
-  const chipLabel = (k) => firstOfYear(k) ? d3.utcFormat("%b %y")(mDate(k)).replace(" ", " ’") : monthShort(mDate(k));
 
   const state = { month: null, source: null };
   function set(k, v) { state[k] = state[k] === v ? null : v; render(); }
@@ -273,7 +273,7 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
   /* ---------- 1. title + slicer ---------- */
   document.getElementById("a-range").textContent = `${runs.length} nightly loads, ${d3.utcFormat("%-d %b %Y")(runs[0].day)} to ${d3.utcFormat("%-d %b %Y")(runs[runs.length - 1].day)}. Deadline 06:00.`;
   const slicer = d3.select("#slicer").selectAll("button").data(months).join("button")
-    .attr("type", "button").attr("class", "pr-chip").text(chipLabel)
+    .attr("type", "button").attr("class", "pr-chip").text((m) => monthShort(mDate(m)))
     .attr("aria-label", (m) => monthName(mDate(m)))
     .on("click", (e, m) => set("month", m));
 
@@ -283,8 +283,9 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
     .on("click", (e, s) => set("source", s.id));
 
   /* ---------- 8. incidents ---------- */
+  const SHORT = { bf: "Black Friday", uom: "ERP rename", orphans: "CRM orphans", throttle: "Throttling", bots: "Bot traffic", crmapi: "CRM API limits" };
   d3.select("#h-chips").selectAll("button").data(WH.incidents).join("button").attr("type", "button").attr("class", "pr-chip")
-    .text((i) => i.title)
+    .text((i) => SHORT[i.id] || i.title).attr("aria-label", (i) => i.title)
     .on("mousemove", (e, i) => tip(e, `<strong>${i.title}</strong><br><span class="tt-k">${d3.utcFormat("%-d %b")(i.fromDay)} to ${d3.utcFormat("%-d %b %Y")(i.toDay)}</span><br>${i.note}`))
     .on("mouseleave", untip)
     .on("click", (e, i) => set("month", i.from.slice(0, 7)));
@@ -327,20 +328,26 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
     const { s, w, h } = svgIn("c-viz");
     const M = state.month;
     const w0 = d3.utcWeek.floor(runs[0].day);
-    const cols = d3.utcWeek.count(w0, runs[runs.length - 1].day) + 1;
-    const left = 16, top = 16;
-    const cell = Math.min((w - left) / cols, (h - top - 4) / 7);
+    const weeks = d3.utcWeek.count(w0, runs[runs.length - 1].day) + 1;
+    const left = 16, labelH = 15;
+    // fold the year into 1 to 3 bands, whichever gives the biggest pegs
+    const fit = [1, 2, 3].map((b) => { const per = Math.ceil(weeks / b); return { b, per, cell: Math.min((w - left) / per, (h - b * labelH - (b - 1) * 6) / (7 * b)) }; })
+      .sort((a, b) => b.cell - a.cell)[0];
+    const cell = Math.min(fit.cell, 26), per = fit.per;
+    const bandH = 7 * cell + labelH + 6;
+    const pos = (d) => { const wk = d3.utcWeek.count(w0, d); return { band: Math.floor(wk / per), col: wk % per }; };
     const r = Math.max(1.6, cell * 0.36);
-    const g = s.append("g").attr("transform", `translate(${left},${top})`);
-    ["S", "M", "T", "W", "T", "F", "S"].forEach((d, i) => { if (i % 2) g.append("text").attr("x", -6).attr("y", i * cell + cell / 2).attr("dy", "0.35em").attr("text-anchor", "end").style("fill", "var(--on)").style("font", "600 9px var(--sans)").text(d); });
+    const g = s.append("g").attr("transform", `translate(${left},${labelH})`);
+    d3.range(fit.b).forEach((b) => ["S", "M", "T", "W", "T", "F", "S"].forEach((d, i) => { if (i % 2) g.append("text").attr("x", -6).attr("y", b * bandH + i * cell + cell / 2).attr("dy", "0.35em").attr("text-anchor", "end").style("fill", "var(--on)").style("font", "600 9px var(--sans)").text(d); }));
+    let lastLabel = { band: -1, col: -99 };
     months.forEach((m) => {
-      const d = d3.max([mDate(m), runs[0].day]);
-      const c = d3.utcWeek.count(w0, d);
-      g.append("text").attr("x", c * cell).attr("y", -6).style("fill", "var(--on)").style("font", "600 9.5px var(--sans)").style("opacity", !M || M === m ? 1 : 0.45).text(monthShort(mDate(m)).slice(0, cw(cell)));
+      const p = pos(d3.max([mDate(m), runs[0].day]));
+      if (p.band === lastLabel.band && p.col - lastLabel.col < 3) return;
+      lastLabel = p;
+      g.append("text").attr("x", p.col * cell).attr("y", p.band * bandH - 5).style("fill", "var(--on)").style("font", "600 9.5px var(--sans)").style("opacity", !M || M === m ? 1 : 0.45).text(monthShort(mDate(m)));
     });
-    function cw(c) { return c * 4.3 > 24 ? 3 : 1; }
     const peg = g.selectAll("g.p").data(runs).join("g").attr("class", "p")
-      .attr("transform", (r) => `translate(${d3.utcWeek.count(w0, r.day) * cell + cell / 2},${r.day.getUTCDay() * cell + cell / 2})`)
+      .attr("transform", (r) => { const p = pos(r.day); return `translate(${p.col * cell + cell / 2},${p.band * bandH + r.day.getUTCDay() * cell + cell / 2})`; })
       .style("opacity", (r) => !M || r.month === M ? 1 : 0.28);
     // debossed well: light lip below, shadowed cup
     peg.filter((r) => !late(r)).append("circle").attr("cy", 0.7).attr("r", r).style("fill", "var(--pr-press-hi)");
@@ -445,8 +452,8 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
       cells.push({ month: mm, layer: L, n: list.length, rate: list.length / nights[mm], top: top ? top[0] : null });
     }));
     const vmax = d3.max(issues.length ? months.flatMap((mm) => layers.map((L) => issues.filter((x) => x.month === mm && x.layer === L).length / nights[mm])) : [1]);
-    const step = Math.max(3.2, Math.min(x.bandwidth(), y.bandwidth()) / 4);
-    const rr = d3.scaleSqrt([0, vmax], [0, step * 0.52]);
+    const step = Math.max(3.6, Math.min(x.bandwidth() / 3, y.bandwidth() / 4));
+    const rr = d3.scaleSqrt([0, vmax], [0, step * 0.46]);
     const g = s.append("g");
     layers.forEach((L) => g.append("text").attr("x", 0).attr("y", y(L) + y.bandwidth() / 2).attr("dy", "0.35em").style("fill", "var(--on)").style("font", "600 10px var(--sans)").text(L[0].toUpperCase() + L.slice(1)));
     g.selectAll("text.xt").data(months).join("text").attr("x", (d) => x(d) + x.bandwidth() / 2).attr("y", h - 3).attr("text-anchor", "middle").style("fill", "var(--on)").style("font", (d) => (d === M ? "700 " : "600 ") + "9.5px var(--sans)").text((d) => monthShort(mDate(d)).slice(0, 1));
@@ -476,7 +483,7 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
       return { id: sr.id, name: sr.name, v: b ? b[sr.id] : d3.mean(runs, (r) => d3.sum(r.tasks.filter((k) => k.source === sr.id), (k) => k.minutes)) };
     });
     const vmax = d3.max(srcIds, (id) => d3.max(bronze, (b) => b[id]));
-    const labelW = Math.min(118, w * 0.34), valW = 34;
+    const labelW = Math.min(132, w * 0.42), valW = 30;
     const y = d3.scaleBand(srcIds, [2, h - 2]).paddingInner(0.32);
     const x = d3.scaleLinear([0, vmax], [labelW, w - valW]);
     const bh = Math.min(14, y.bandwidth());
@@ -488,7 +495,7 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
       .on("click", (e, d) => set("source", d.id));
     row.append("rect").attr("width", w).attr("height", bh).attr("y", 0).style("fill", "transparent");
     row.append("circle").attr("cx", 5).attr("cy", bh / 2).attr("r", 4.5).style("fill", (d) => srcVar(d.id));
-    row.append("text").attr("x", 15).attr("y", bh / 2).attr("dy", "0.35em").style("fill", "var(--pr-ink)").style("font", (d) => (d.id === S ? "700 " : "") + "12px var(--sans)").text((d) => d.name);
+    row.append("text").attr("x", 15).attr("y", bh / 2).attr("dy", "0.35em").style("fill", "var(--pr-ink)").style("font", (d) => (d.id === S ? "700 " : "") + "11.5px var(--sans)").text((d) => d.name);
     // debossed track, then the inked bar
     row.append("rect").attr("x", x(0)).attr("width", x(vmax) - x(0)).attr("y", 0.6).attr("height", bh).attr("rx", bh / 2).style("fill", "var(--pr-press-hi)");
     row.append("rect").attr("x", x(0)).attr("width", x(vmax) - x(0)).attr("height", bh).attr("rx", bh / 2).style("fill", "var(--pr-hole)");
@@ -530,7 +537,7 @@ DIVIDE ( [Issues], DISTINCTCOUNT ( TestResults[Night] ) )</pre>
     2: [["Native", "New card visual on [On-time nights], callout from the theme's callout text class; a second reference label for the sentence."], ["Letterpress", "Power BI text has no shadow. For the pressed numeral, make an SVG measure (the number twice, offset 1px, light under dark) and show it in an Image visual bound to the measure with data category Image URL. Worth it for the hero number only."]],
     3: [["Deneb", "Vega-Lite point marks: x = week of year, y = weekday. Three layers: a light circle 0.7px low, the well on top, and filled pegs where SLA met is false. Turn on cross-highlight and cross-filter in Deneb's settings and fade unselected nights through the selection fields."], ["Native fallback", "A matrix of weeks by weekday with conditional-format icons. Loses the peg, keeps the pattern."]],
     4: [["Native", "Card for the median, plus a scatter chart for the rug: x = Gold finish minutes, y = a constant, marker = a thin vertical line, transparency 70%. Add the 06:00 line as an X-axis constant line in the Analytics pane."], ["Deneb", "Tick marks for nights and a rule at 360 minutes give the ruler its 15-minute graduations."]],
-    5: [["Native", "Stacked column chart, Calendar[Month] on the axis, Bronze minutes per night, Source in the legend. Set each source's color explicitly (Columns > Colors) so a filter can never repaint them; the theme's dataColors are in the same fixed order."], ["Gaps", "The paper gaps between segments are native: Columns > Border on, color = paper, size 2. The theme file sets this for every stacked column chart."], ["Halftone off-state", "Not native; Power BI's highlight fades the rest instead, which reads fine. For true halftone, build the tile in Deneb with a pattern-free trick: a second layer of small point marks over unselected bars."]],
+    5: [["Native", "Stacked column chart, Calendar[Month] on the axis, Bronze minutes per night, Source in the legend. Set each source's color explicitly (Columns > Colors) so a filter can never repaint them; the theme's dataColors are in the same fixed order."], ["Gaps", "The paper gaps between segments are native: Columns > Border on, color = paper, size 2. The theme file sets this for every stacked column chart."], ["Halftone off-state", "Not native; Power BI's highlight fades the rest instead, which reads fine. For true halftone, build the tile in Deneb and draw unselected bars as a grid of small point marks instead of a fill."]],
     6: [["SVG in a matrix", "Matrix with Layer on rows and Month on columns; the value is a DAX SVG measure that draws a 4 by 4 grid of dots whose radius is SQRT([Issues per night]) scaled to the cell. Set image size in Format > Image size. Matrix cells cross-highlight natively."], ["Deneb", "Or one Vega-Lite spec: calculate sequence(0,16) per cell, flatten it, and place point marks by index with size from the rate."]],
     7: [["Native", "Clustered bar chart, Source on the axis in source order, colors set per source. Square ends; there is no radius on bars."], ["Debossed track", "Not native. A table with Source, an SVG measure that draws the well and the bar, and the value does it, and still cross-filters when clicked."]],
     8: [["Native", "Button slicer on an Incident table related to Calendar by date range. A report-page tooltip shows the note on hover. Bookmarks work too, but a slicer keeps the page's state in one place."], ["Texture", "Patina block from the canvas image; the chips' outline color is the block's text color."]],
