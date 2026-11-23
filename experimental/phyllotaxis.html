@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunflower sort · Data Viz Lab</title>
+<meta name="description" content="1,500 synthetic orders laid out on a golden-angle spiral, re-sorted with animated transitions so ordering becomes radius.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .back { margin: 0 0 1.2rem; font-size: 0.88rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  .sun-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  @media (min-width: 920px) { .sun-layout { grid-template-columns: minmax(0, 1fr) 290px; align-items: start; } }
+  #spiral svg { margin: 0 auto; touch-action: pan-y; }
+  .side h4 { margin: 0 0 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
+  .side p { font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 14px; }
+  .side .mode-note { min-height: 4.2em; }
+  .ring-label { font: 11px var(--sans); fill: var(--text-secondary); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; font-variant-numeric: tabular-nums; }
+  .controls .seg { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/" aria-current="true">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Experimental</a></p>
+  <p class="kicker">Experimental</p>
+  <h1>Sunflower sort</h1>
+  <p class="lede">Fifteen hundred orders packed the way a sunflower packs seeds: each one turned 137.5 degrees from the last and pushed out by the square root of its position. Sort the list and the flower reorganises. Rank becomes radius, and because area grows with rank, any run of the list occupies an annulus whose area is its count.</p>
+
+  <div class="figure" id="fig">
+    <p class="figure-title">One year of orders, three channels</p>
+    <p class="figure-sub" id="fig-sub">Sorted by value: the largest order sits at the center.</p>
+    <div class="controls">
+      <span>Sort by</span>
+      <span class="seg" role="group" aria-label="Sort order">
+        <button type="button" data-mode="value" aria-pressed="true">Value</button>
+        <button type="button" data-mode="date" aria-pressed="false">Date</button>
+        <button type="button" data-mode="category" aria-pressed="false">Channel</button>
+        <button type="button" data-mode="shuffle" aria-pressed="false">Unsorted</button>
+      </span>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="sun-layout">
+      <div id="spiral"></div>
+      <div class="side">
+        <h4>Radius is rank</h4>
+        <p class="mode-note" id="mode-note"></p>
+        <h4>Channel mix, center to edge</h4>
+        <p>Ten rings of 150 orders each. Equal counts means equal areas on the flower, so this is the flower read as bars.</p>
+        <div id="mix"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h3>What to look at</h3>
+    <ul>
+      <li>Value: Wholesale fills the core almost alone. Retail and Online interleave outside it, Online drifting toward the rim because its orders run smaller; the flower shows that overlap as speckle rather than as two humps.</li>
+      <li>Date: the spiral becomes growth rings. Online's share climbs toward the rim, and the ring labels bunch at the end: the last quarter of the year's orders arrives after late October, so the outer annulus covers barely two months.</li>
+      <li>Channel: three clean annuli. Their areas are the counts, which is the one comparison the flower makes honestly.</li>
+      <li>Unsorted: the same seeds, now noise. Every pattern above lives in the ordering, none in the marks.</li>
+    </ul>
+    <h3>What it trades away</h3>
+    <ul>
+      <li>Radius is a square-root scale of rank, so the inner rings are compressed: the top 10 percent occupy a tenth of the area but almost a third of the radius. Eyes read distance from the center, not area, and overweight the core.</li>
+      <li>Angle carries no information at all. Neighbouring seeds on screen can be hundreds of ranks apart on different arms, so local clusters are illusory.</li>
+      <li>Value itself is never shown, only its order. A bar chart of sorted values or a strip plot by channel answers every question here faster; the flower is the invitation to ask them.</li>
+    </ul>
+  </div>
+  <div id="orders-table"></div>
+  <p class="source">Data: synthetic, generated in-page with Lab.rng(42). 1,500 fictional orders dated through 2025 with a November to December peak; Online's share rises from 18 to 45 percent over the year; values are lognormal by channel (medians $2,400 Wholesale, $160 Retail, $85 Online).</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const rand = Lab.rng(42);
+  const N = 1500, GOLDEN = Math.PI * (3 - Math.sqrt(5));
+  const CATS = ["Wholesale", "Retail", "Online"];
+  const MED = [2400, 160, 85], SIG = [0.55, 0.7, 0.75];
+  const fmtDay = (d) => d3.utcFormat("%b %-d")(new Date(Date.UTC(2025, 0, 1 + d)));
+
+  /* ---------- data ---------- */
+  const recs = [];
+  while (recs.length < N) {
+    const day = Math.floor(rand() * 365);
+    const dens = 1 + 0.9 * Math.exp(-Math.pow((day - 330) / 22, 2));
+    if (rand() * 1.9 > dens) continue;
+    const t = day / 364, pOn = 0.18 + 0.27 * t, pWh = 0.14, u = rand();
+    const cat = u < pWh ? 0 : u < pWh + pOn ? 2 : 1;
+    const value = Math.round(MED[cat] * Math.exp(SIG[cat] * Lab.randn(rand)));
+    recs.push({ day, cat, value, tie: rand() });
+  }
+  recs.sort((a, b) => a.day - b.day || a.tie - b.tie);
+  recs.forEach((d, i) => { d.idn = i; d.id = "ORD-" + String(i + 1).padStart(5, "0"); });
+  const shuffleKey = recs.map(() => rand());
+  const catCount = [0, 1, 2].map((c) => recs.filter((d) => d.cat === c).length);
+
+  const MODES = {
+    value: {
+      cmp: (a, b) => b.value - a.value || a.idn - b.idn,
+      sub: "Sorted by value: the largest order sits at the center.",
+      note: "Largest order at the center, smallest at the rim. Each ring marks a share of orders and the value at that rank.",
+      ring: (d) => Lab.fmt.usd(d.value),
+    },
+    date: {
+      cmp: (a, b) => a.idn - b.idn,
+      sub: "Sorted by date: January 1 at the center, December 31 at the rim.",
+      note: "Oldest order at the center, newest at the rim. Each ring marks a share of orders and the date reached by that rank.",
+      ring: (d) => fmtDay(d.day),
+    },
+    category: {
+      cmp: (a, b) => a.cat - b.cat || b.value - a.value || a.idn - b.idn,
+      sub: "Sorted by channel, then by value within channel.",
+      note: "Grouped by channel, largest first within each. Rings mark the channel boundaries; annulus area is the channel's order count.",
+    },
+    shuffle: {
+      cmp: (a, b) => shuffleKey[a.idn] - shuffleKey[b.idn],
+      sub: "Unsorted: a seeded shuffle. Same seeds, no order.",
+      note: "A seeded random order. Rings still mark shares of the list, but rank now means nothing, and neither does radius.",
+      ring: null,
+    },
+  };
+
+  /* ---------- legend ---------- */
+  const legend = d3.select("#legend");
+  CATS.forEach((c, i) => {
+    const s = legend.append("span");
+    s.append("span").attr("class", "swatch").style("background", `var(--series-${i + 1})`).style("border-radius", "50%");
+    s.append("span").text(`${c} `);
+    s.append("span").attr("class", "muted num").text(Lab.fmt.int(catCount[i]));
+  });
+
+  /* ---------- spiral ---------- */
+  const host = document.getElementById("spiral");
+  const svg = d3.select(host).append("svg").attr("role", "img")
+    .attr("aria-label", "1,500 orders on a golden-angle spiral; radius encodes rank in the current sort");
+  const root = svg.append("g");
+  const gSeeds = root.append("g");
+  const gRings = root.append("g").style("pointer-events", "none");
+  const gHover = root.append("g").style("pointer-events", "none");
+  let SIZE = 0, C = 1, R0 = 1, mode = "value", delaunay = null, order = [];
+
+  const seeds = gSeeds.selectAll("circle").data(recs, (d) => d.id).join("circle")
+    .style("fill", (d) => `var(--series-${d.cat + 1})`);
+
+  function place(d) {
+    d.px = C * d._r * Math.cos(d._a);
+    d.py = C * d._r * Math.sin(d._a);
+  }
+  function setPos(sel) { sel.attr("cx", (d) => d.px.toFixed(2)).attr("cy", (d) => d.py.toFixed(2)); }
+
+  function ringData() {
+    if (mode === "category") {
+      const b1 = catCount[0], b2 = catCount[0] + catCount[1];
+      return [
+        { rank: b1, text: `${CATS[0]} | ${CATS[1]}` },
+        { rank: b2, text: `${CATS[1]} | ${CATS[2]}` },
+        { rank: N, text: `${CATS[2]} ends` },
+      ];
+    }
+    const fmt = MODES[mode].ring;
+    return [0.1, 0.25, 0.5, 0.75, 1].map((f) => {
+      const rank = Math.round(f * N);
+      return { rank, text: Lab.fmt.pct(f) + (fmt ? " · " + fmt(order[rank - 1]) : "") };
+    });
+  }
+
+  function drawRings(animate) {
+    const ang = -Math.PI / 3.2;
+    const g = gRings.selectAll("g.ring").data(ringData(), (d, i) => i).join((e) => {
+      const n = e.append("g").attr("class", "ring");
+      n.append("circle").style("fill", "none").style("stroke", "var(--text-secondary)").style("stroke-width", 0.75).style("stroke-opacity", 0.75);
+      n.append("text").attr("class", "ring-label");
+      return n;
+    });
+    const r = (d) => C * Math.sqrt(d.rank) + R0 + 1;
+    const t = animate ? g.transition().duration(Lab.reducedMotion() ? 0 : 900) : g;
+    t.select("circle").attr("r", r);
+    g.select("text")
+      .attr("x", (d) => r(d) * Math.cos(ang) + 3)
+      .attr("y", (d) => r(d) * Math.sin(ang) - 3)
+      .text((d) => d.text);
+  }
+
+  function sortTo(m, animate) {
+    mode = m;
+    order = recs.slice().sort(MODES[m].cmp);
+    order.forEach((d, k) => { d.rank = k + 1; d.tr = Math.sqrt(k + 0.5); d.ta = k * GOLDEN; });
+    document.getElementById("fig-sub").textContent = MODES[m].sub;
+    document.getElementById("mode-note").textContent = MODES[m].note;
+    const dur = animate && !Lab.reducedMotion() ? 1300 : 0;
+    if (!dur) {
+      seeds.interrupt();
+      recs.forEach((d) => { d._r = d.tr; d._a = d.ta; place(d); });
+      setPos(seeds);
+    } else {
+      seeds.transition().duration(dur).delay((d) => (d.rank / N) * 700).ease(d3.easeCubicInOut)
+        .tween("polar", function (d) {
+          const r0 = d._r, a0 = d._a, r1 = d.tr;
+          let da = (d.ta - a0) % (2 * Math.PI);
+          if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
+          const el = d3.select(this);
+          return (t) => {
+            d._r = r0 + (r1 - r0) * t; d._a = a0 + da * t; place(d);
+            el.attr("cx", d.px.toFixed(2)).attr("cy", d.py.toFixed(2));
+          };
+        })
+        .on("end", function (d) { d._a = d.ta; });
+    }
+    // Hit-testing uses the destination layout.
+    delaunay = d3.Delaunay.from(recs, (d) => C * d.tr * Math.cos(d.ta), (d) => C * d.tr * Math.sin(d.ta));
+    drawRings(animate);
+    drawMix(animate);
+    gHover.selectAll("*").remove();
+    d3.selectAll(".controls [data-mode]").attr("aria-pressed", function () { return String(this.dataset.mode === m); });
+  }
+
+  function layout() {
+    SIZE = Math.max(260, Math.min(640, Math.floor(host.clientWidth)));
+    const pad = 6;
+    C = (SIZE / 2 - pad) / Math.sqrt(N);
+    R0 = Math.max(1.1, C * 0.46);
+    svg.attr("width", SIZE).attr("height", SIZE).attr("viewBox", `0 0 ${SIZE} ${SIZE}`);
+    root.attr("transform", `translate(${SIZE / 2},${SIZE / 2})`);
+    seeds.attr("r", R0);
+    if (!order.length) { recs.forEach((d) => { d._r = 0; d._a = 0; }); }
+    sortTo(mode, false);
+    drawMixLayout();
+  }
+
+  /* ---------- hover ---------- */
+  svg.on("pointermove", (ev) => {
+    const [mx, my] = d3.pointer(ev, root.node());
+    const i = delaunay.find(mx, my);
+    const d = recs[i];
+    const dx = C * d.tr * Math.cos(d.ta) - mx, dy = C * d.tr * Math.sin(d.ta) - my;
+    if (Math.hypot(dx, dy) > Math.max(10, R0 * 4)) { Lab.tooltip.hide(); gHover.selectAll("*").remove(); return; }
+    gHover.selectAll("circle").data([d]).join("circle")
+      .attr("cx", C * d.tr * Math.cos(d.ta)).attr("cy", C * d.tr * Math.sin(d.ta)).attr("r", R0 + 3)
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1.5);
+    Lab.tooltip.show(ev,
+      `<div><b>${d.id}</b></div>` +
+      `<div><span class="tt-k">Channel</span> ${CATS[d.cat]}</div>` +
+      `<div><span class="tt-k">Value</span> ${Lab.fmt.usd(d.value)}</div>` +
+      `<div><span class="tt-k">Date</span> ${fmtDay(d.day)}, 2025</div>` +
+      `<div><span class="tt-k">Rank</span> ${Lab.fmt.int(d.rank)} of ${Lab.fmt.int(N)}</div>`);
+  }).on("pointerleave", () => { Lab.tooltip.hide(); gHover.selectAll("*").remove(); });
+
+  /* ---------- mix bars ---------- */
+  const mixHost = document.getElementById("mix");
+  const mix = d3.select(mixHost).append("svg");
+  const gMix = mix.append("g");
+  const RINGS = 10, PER = N / RINGS, ROW = 19, LBL = 46;
+  let MW = 280;
+  function mixData() {
+    const rows = d3.range(RINGS).map((k) => ({ k, n: [0, 0, 0] }));
+    order.forEach((d, idx) => { rows[Math.floor(idx / PER)].n[d.cat]++; });
+    rows.forEach((r) => {
+      let x = 0;
+      r.segs = r.n.map((n, c) => { const s = { k: r.k, c, n, x0: x, share: n / PER }; x += n / PER; return s; });
+    });
+    return rows;
+  }
+  function drawMixLayout() {
+    MW = Math.max(200, Math.floor(mixHost.clientWidth) || 280);
+    mix.attr("width", MW).attr("height", RINGS * ROW + 18).attr("viewBox", `0 0 ${MW} ${RINGS * ROW + 18}`);
+    drawMix(false);
+  }
+  function drawMix(animate) {
+    if (!order.length) return;
+    const x = d3.scaleLinear([0, 1], [LBL, MW - 2]);
+    const rows = mixData();
+    const g = gMix.selectAll("g.row").data(rows, (d) => d.k).join((e) => {
+      const n = e.append("g").attr("class", "row");
+      n.append("text").attr("class", "label").attr("x", 0).attr("dy", "0.32em");
+      return n;
+    }).attr("transform", (d) => `translate(0,${d.k * ROW + ROW / 2})`);
+    g.select("text").text((d) => (d.k === 0 ? "center" : d.k === RINGS - 1 ? "edge" : d.k + 1));
+    const seg = g.selectAll("rect").data((d) => d.segs).join("rect")
+      .attr("y", -(ROW - 5) / 2).attr("height", ROW - 5)
+      .style("fill", (d) => `var(--series-${d.c + 1})`)
+      .on("pointermove", (ev, d) => Lab.tooltip.show(ev,
+        `<div><b>Ring ${d.k + 1}</b> (ranks ${Lab.fmt.int(d.k * PER + 1)} to ${Lab.fmt.int((d.k + 1) * PER)})</div>` +
+        `<div><span class="tt-k">${CATS[d.c]}</span> ${d.n} orders, ${Lab.fmt.pct(d.share)}</div>`))
+      .on("pointerleave", () => Lab.tooltip.hide());
+    const t = animate && !Lab.reducedMotion() ? seg.transition().duration(900) : seg;
+    t.attr("x", (d) => x(d.x0)).attr("width", (d) => Math.max(0, x(d.x0 + d.share) - x(d.x0) - (d.c < 2 && d.n ? 1 : 0)));
+    const ax = gMix.selectAll("g.ax").data([0]).join((e) => e.append("g").attr("class", "ax"))
+      .attr("transform", `translate(0,${RINGS * ROW + 12})`);
+    ax.selectAll("text").data([0, 0.5, 1]).join("text").attr("class", "label")
+      .attr("x", (d) => x(d)).attr("text-anchor", (d) => (d === 0 ? "start" : d === 1 ? "end" : "middle"))
+      .style("font-size", "10px").text((d) => Lab.fmt.pct(d));
+  }
+
+  /* ---------- wire up ---------- */
+  d3.selectAll(".controls [data-mode]").on("click", function () { sortTo(this.dataset.mode, true); });
+  Lab.responsive(layout);
+
+  Lab.tableView("#orders-table", [
+    { key: "id", label: "Order" },
+    { key: "day", label: "Date", format: (v) => fmtDay(v) },
+    { key: "cat", label: "Channel", format: (v) => CATS[v] },
+    { key: "value", label: "Value", align: "r", format: Lab.fmt.usd },
+  ], recs, "Show all 1,500 orders as a table");
+})();
+</script>
+</body>
+</html>

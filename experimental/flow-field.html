@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wind ink · Data Viz Lab</title>
+<meta name="description" content="Thousands of particles advected through a wind field derived from a synthetic surface pressure map.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .back { margin: 0 0 1.2rem; font-size: 0.88rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  .stage { position: relative; width: 100%; touch-action: pan-y; }
+  .stage canvas { display: block; }
+  .stage svg.overlay { position: absolute; left: 0; top: 0; overflow: visible; }
+  .stage svg.overlay g { pointer-events: none; }
+  .controls output { font-variant-numeric: tabular-nums; min-width: 3.2em; color: var(--text-primary); }
+  .controls input[type="range"] { width: 120px; }
+  .ramp { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 0.82rem; color: var(--text-secondary); margin: 10px 0 0; }
+  .ramp .steps { display: inline-flex; }
+  .ramp .steps span { display: inline-flex; flex-direction: column; align-items: flex-start; font-size: 0.75rem; color: var(--text-muted); }
+  .ramp .steps i { display: block; width: 46px; height: 8px; }
+  .hl-label { font: 600 13px var(--sans); fill: var(--text-primary); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
+  .hl-sub { font: 11px var(--sans); fill: var(--text-secondary); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/" aria-current="true">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Experimental</a></p>
+  <p class="kicker">Experimental</p>
+  <h1>Wind ink</h1>
+  <p class="lede">A surface pressure map, drawn not as isobars but as the wind it would produce. Every streak is a particle carried by the field for a few seconds of its life. The weather is invented; the physics is a reasonable cartoon of the real thing.</p>
+
+  <div class="figure" id="fig">
+    <p class="figure-title">Seven pressure systems over a weak westerly</p>
+    <p class="figure-sub">Wind runs along the isobars, counterclockwise around lows and clockwise around highs, leaking about 16 degrees toward low pressure. Hover anywhere for pressure and wind.</p>
+    <div class="controls">
+      <button id="play" type="button">Pause</button>
+      <label>Particles <input id="count" type="range" min="500" max="8000" step="500" value="3000"><output id="count-v">3,000</output></label>
+      <label>Trail <input id="trail" type="range" min="4" max="48" step="2" value="20"><output id="trail-v">20</output></label>
+      <label>Ink <select id="ink"><option value="speed">Wind speed</option><option value="mono">Monochrome</option></select></label>
+      <button id="isobars" type="button" aria-pressed="false">Isobars</button>
+      <button id="arrows" type="button" aria-pressed="false">Arrows</button>
+    </div>
+    <div class="stage" id="stage"><canvas id="cv" aria-label="Animated particle trails following a synthetic wind field"></canvas></div>
+    <div class="ramp" id="ramp">
+      <span>Ink: wind speed</span>
+      <span class="steps" id="ramp-steps"></span>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h3>What is encoded</h3>
+    <ul>
+      <li>Direction of every streak is the wind direction at that point: geostrophic flow along the isobars plus a friction term that tilts it toward low pressure. That is why the particles circle rather than drain from H to L.</li>
+      <li>Speed is encoded twice: streak length (each trail is a fixed number of frames, so faster air draws longer) and the sequential ramp. The redundancy is deliberate; length alone is hard to read in a dense field.</li>
+      <li>Particle density means nothing. Seeds are uniform and respawn at random, so bunching is only convergence, not volume.</li>
+    </ul>
+    <h3>What it trades away</h3>
+    <ul>
+      <li>You cannot read a value off the canvas. The isobar overlay and the hover readout are the actual chart; the ink is the mood around it.</li>
+      <li>Calm regions look empty, which reads as "no data" rather than "no wind". A static vector grid (the Arrows toggle) is less beautiful and more honest about that.</li>
+      <li>Trail length is a time exposure. Change it and the same field looks stormier or calmer, with no change in the data.</li>
+    </ul>
+  </div>
+  <div id="centers-table"></div>
+  <p class="source">Data: synthetic. Seven Gaussian pressure centers (amplitude 9 to 22 hPa) placed with Lab.rng(42) over a 1013 hPa base and a 10 hPa north-south background gradient; particle seeds drawn from the same generator. Wind speed is scaled so the steepest gradient on the map is 45 kt.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const rand = Lab.rng(42);
+
+  /* ---------- the data: pressure centers ---------- */
+  const BASE = 1013, G = 10, ALPHA = 0.28; // G: hPa per world unit, south higher; ALPHA: cross-isobar friction
+  const centers = [];
+  for (let tries = 0; centers.length < 7 && tries < 1000; tries++) {
+    const c = { x: 0.12 + rand() * 1.36, y: 0.12 + rand() * 0.76 };
+    if (centers.some((o) => Math.hypot(o.x - c.x, o.y - c.y) < 0.32)) continue;
+    const high = centers.length % 2 === 0;
+    c.amp = (high ? 1 : -1) * (9 + rand() * 13);
+    c.s = 0.11 + rand() * 0.12;
+    c.k = 1 / (2 * c.s * c.s);
+    c.inv = 1 / (c.s * c.s);
+    centers.push(c);
+  }
+  let hi = 0, lo = 0;
+  centers.forEach((c) => { c.name = c.amp > 0 ? "H" + (++hi) : "L" + (++lo); });
+
+  function pressure(x, y) {
+    let p = BASE + G * (y - 0.5);
+    for (let i = 0; i < centers.length; i++) {
+      const c = centers[i], dx = x - c.x, dy = y - c.y;
+      p += c.amp * Math.exp(-(dx * dx + dy * dy) * c.k);
+    }
+    return p;
+  }
+  // Screen coordinates, y down. Northern-hemisphere geostrophic wind plus friction toward low pressure.
+  const W2 = [0, 0];
+  function wind(x, y, out) {
+    let gx = 0, gy = G;
+    for (let i = 0; i < centers.length; i++) {
+      const c = centers[i], dx = x - c.x, dy = y - c.y;
+      const e = c.amp * Math.exp(-(dx * dx + dy * dy) * c.k) * c.inv;
+      gx -= dx * e; gy -= dy * e;
+    }
+    out[0] = gy - ALPHA * gx;
+    out[1] = -gx - ALPHA * gy;
+    return out;
+  }
+  // Fixed normalisation over a fixed world box, so readouts do not change with the viewport.
+  let vmax = 0;
+  for (let x = -0.3; x <= 1.9; x += 0.01) for (let y = -0.1; y <= 1.1; y += 0.01) {
+    wind(x, y, W2); vmax = Math.max(vmax, Math.hypot(W2[0], W2[1]));
+  }
+  const KT = 45 / vmax;
+  centers.forEach((c) => { c.p = pressure(c.x, c.y); });
+
+  /* ---------- speed ramp ---------- */
+  const BIN_EDGES = [0.12, 0.28, 0.48, 0.72];      // fractions of vmax
+  const RAMP = ["--seq-300", "--seq-400", "--seq-500", "--seq-600", "--seq-700"];
+  const rampSteps = d3.select("#ramp-steps");
+  const edgesKt = [0].concat(BIN_EDGES.map((f) => Math.round(f * 45)));
+  RAMP.forEach((tok, i) => {
+    const s = rampSteps.append("span");
+    s.append("i").style("background", `var(${tok})`);
+    s.append("span").text(i === 0 ? "0 kt" : edgesKt[i]);
+  });
+  rampSteps.append("span").append("span").style("margin-left", "-6px").text("45");
+
+  /* ---------- canvas + particles ---------- */
+  const fig = document.getElementById("fig");
+  const stage = document.getElementById("stage");
+  const canvas = document.getElementById("cv");
+  let ctx, W = 0, H = 0, S = 1, X0 = 0, DT = 0;
+
+  let N = window.innerWidth < 640 ? 1500 : 3000, K = 20, head = 0;
+  let px, py, spd, age, life, cnt, hist;
+  let ink = "speed", colors = [], monoColor = "";
+
+  const countEl = document.getElementById("count"), trailEl = document.getElementById("trail");
+  countEl.value = N;
+  document.getElementById("count-v").textContent = Lab.fmt.int(N);
+
+  function readColors() {
+    colors = RAMP.map((t) => Lab.css(t));
+    monoColor = Lab.css("--text-primary");
+  }
+
+  function respawn(i) {
+    px[i] = X0 + rand() * (W / S);
+    py[i] = rand();
+    age[i] = 0;
+    life[i] = 60 + Math.floor(rand() * 180);
+    cnt[i] = 1;
+    const o = (i * K + head) * 2;
+    hist[o] = (px[i] - X0) * S; hist[o + 1] = py[i] * S;
+    wind(px[i], py[i], W2); spd[i] = Math.hypot(W2[0], W2[1]) / vmax;
+  }
+
+  function initParticles() {
+    px = new Float32Array(N); py = new Float32Array(N); spd = new Float32Array(N);
+    age = new Uint16Array(N); life = new Uint16Array(N); cnt = new Uint8Array(N);
+    hist = new Float32Array(N * K * 2);
+    head = 0;
+    for (let i = 0; i < N; i++) { respawn(i); age[i] = Math.floor(rand() * life[i]); }
+    for (let k = 0; k < K; k++) step(); // warm up so trails exist on the first paint
+  }
+
+  function step() {
+    head = (head + 1) % K;
+    const xmax = X0 + W / S + 0.02, xmin = X0 - 0.02;
+    for (let i = 0; i < N; i++) {
+      wind(px[i], py[i], W2);
+      px[i] += W2[0] * DT; py[i] += W2[1] * DT;
+      age[i]++;
+      if (age[i] > life[i] || px[i] < xmin || px[i] > xmax || py[i] < -0.02 || py[i] > 1.02) { respawn(i); continue; }
+      const o = (i * K + head) * 2;
+      hist[o] = (px[i] - X0) * S; hist[o + 1] = py[i] * S;
+      if (cnt[i] < K) cnt[i]++;
+      spd[i] = Math.hypot(W2[0], W2[1]) / vmax;
+    }
+  }
+
+  const B = 4; // age buckets for the fade
+  function binOf(v) { let b = 0; while (b < BIN_EDGES.length && v >= BIN_EDGES[b]) b++; return b; }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    const nb = ink === "mono" ? 1 : RAMP.length;
+    const lists = Array.from({ length: nb }, () => []);
+    for (let i = 0; i < N; i++) if (cnt[i] > 1) lists[nb === 1 ? 0 : binOf(spd[i])].push(i);
+    ctx.lineWidth = ink === "mono" ? 0.9 : 1.1;
+    const baseA = ink === "mono" ? 0.6 : 0.95;
+    for (let c = 0; c < nb; c++) {
+      ctx.strokeStyle = nb === 1 ? monoColor : colors[c];
+      const L = lists[c];
+      for (let b = 0; b < B; b++) {
+        const j0 = Math.floor((b * K) / B), j1 = Math.floor(((b + 1) * K) / B);
+        ctx.globalAlpha = baseA * (1 - b / B);
+        ctx.beginPath();
+        for (let q = 0; q < L.length; q++) {
+          const i = L[q], n = cnt[i];
+          if (j0 >= n - 1) continue;
+          const end = Math.min(j1, n - 1);
+          let o = (i * K + ((head - j0 + K) % K)) * 2;
+          ctx.moveTo(hist[o], hist[o + 1]);
+          for (let j = j0 + 1; j <= end; j++) {
+            o = (i * K + ((head - j + K) % K)) * 2;
+            ctx.lineTo(hist[o], hist[o + 1]);
+          }
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- SVG overlay: isobars, arrows, H/L, hover ---------- */
+  const svg = d3.select(stage).append("svg").attr("class", "overlay");
+  const hit = svg.append("rect").style("fill", "transparent").style("cursor", "crosshair");
+  const gIso = svg.append("g"), gArr = svg.append("g"), gHL = svg.append("g"), gHover = svg.append("g");
+  let showIso = false, showArr = false;
+
+  function worldToPx(x, y) { return [(x - X0) * S, y * S]; }
+
+  function drawIsobars() {
+    gIso.selectAll("*").remove();
+    if (!showIso) return;
+    const cell = 6, cols = Math.ceil(W / cell), rows = Math.ceil(H / cell);
+    const vals = new Float64Array(cols * rows);
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++)
+      vals[j * cols + i] = pressure(X0 + ((i + 0.5) * cell) / S, ((j + 0.5) * cell) / S);
+    const [mn, mx] = d3.extent(vals);
+    const th = d3.range(Math.ceil(mn / 4) * 4, mx, 4);
+    const contours = d3.contours().size([cols, rows]).thresholds(th)(vals);
+    const path = d3.geoPath(d3.geoIdentity().scale(cell));
+    gIso.selectAll("path").data(contours).join("path")
+      .attr("d", path)
+      .style("fill", "none")
+      .style("stroke", (d) => (d.value === 1012 ? "var(--text-primary)" : "var(--text-secondary)"))
+      .style("stroke-width", (d) => (d.value === 1012 ? 1.25 : 0.75))
+      .style("stroke-opacity", 0.85);
+  }
+
+  function drawArrows() {
+    gArr.selectAll("*").remove();
+    if (!showArr) return;
+    const gap = W < 500 ? 30 : 38, segs = [];
+    for (let y = gap / 2; y < H; y += gap) for (let x = gap / 2; x < W; x += gap) {
+      wind(X0 + x / S, y / S, W2);
+      const m = Math.hypot(W2[0], W2[1]) / vmax;
+      const ux = W2[0] / (m * vmax || 1), uy = W2[1] / (m * vmax || 1);
+      const len = 5 + (gap - 10) * Math.min(1, m), hx = x + (ux * len) / 2, hy = y + (uy * len) / 2;
+      const tx = x - (ux * len) / 2, ty = y - (uy * len) / 2, ah = 3.2;
+      segs.push(`M${tx.toFixed(1)},${ty.toFixed(1)}L${hx.toFixed(1)},${hy.toFixed(1)}` +
+        `M${(hx - ah * (ux - uy * 0.6)).toFixed(1)},${(hy - ah * (uy + ux * 0.6)).toFixed(1)}L${hx.toFixed(1)},${hy.toFixed(1)}` +
+        `L${(hx - ah * (ux + uy * 0.6)).toFixed(1)},${(hy - ah * (uy - ux * 0.6)).toFixed(1)}`);
+    }
+    gArr.append("path").attr("d", segs.join(""))
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1).style("stroke-opacity", 0.7);
+  }
+
+  function drawHL() {
+    const g = gHL.selectAll("g.hl").data(centers).join((e) => {
+      const n = e.append("g").attr("class", "hl");
+      n.append("text").attr("class", "hl-label").attr("text-anchor", "middle");
+      n.append("text").attr("class", "hl-sub").attr("text-anchor", "middle").attr("dy", 14);
+      return n;
+    });
+    g.attr("transform", (c) => `translate(${worldToPx(c.x, c.y).map((v) => v.toFixed(1)).join(",")})`)
+      .style("display", (c) => { const [x] = worldToPx(c.x, c.y); return x < 8 || x > W - 8 ? "none" : null; });
+    g.select(".hl-label").text((c) => c.name[0]);
+    g.select(".hl-sub").text((c) => Math.round(c.p));
+  }
+
+  const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  hit.on("pointermove", (ev) => {
+    const [mx, my] = d3.pointer(ev, svg.node());
+    const x = X0 + mx / S, y = my / S;
+    wind(x, y, W2);
+    const kt = Math.hypot(W2[0], W2[1]) * KT;
+    const toDeg = (Math.atan2(W2[0], -W2[1]) * 180) / Math.PI;
+    const fromDeg = (toDeg + 180 + 360) % 360;
+    const dir = COMPASS[Math.round(fromDeg / 45) % 8];
+    Lab.tooltip.show(ev,
+      `<div><b>${Lab.fmt.one(pressure(x, y))} hPa</b></div>` +
+      `<div><span class="tt-k">Wind</span> ${Math.round(kt)} kt from ${dir} (${Math.round(fromDeg)}°)</div>`);
+    gHover.selectAll("circle").data([0]).join("circle").attr("r", 4).attr("cx", mx).attr("cy", my)
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1);
+  }).on("pointerleave", () => { Lab.tooltip.hide(); gHover.selectAll("*").remove(); });
+
+  /* ---------- layout ---------- */
+  function layout() {
+    W = Math.max(280, Math.floor(Lab.width(fig)));
+    H = Math.round(Math.min(620, Math.max(280, W * 0.6)));
+    S = H;                         // world height is 1 unit
+    X0 = 0.8 - W / (2 * S);        // centre the view on the systems
+    DT = 2.4 / (vmax * S);         // fastest air moves about 2.4 px per frame
+    ctx = Lab.canvas(canvas, W, H);
+    svg.attr("width", W).attr("height", H).attr("viewBox", `0 0 ${W} ${H}`);
+    hit.attr("width", W).attr("height", H);
+    readColors();
+    initParticles();
+    drawIsobars(); drawArrows(); drawHL();
+    draw();
+  }
+
+  /* ---------- animation ---------- */
+  let playing = !Lab.reducedMotion(), visible = true, raf = 0;
+  const playBtn = document.getElementById("play");
+  function setPlay(p) {
+    playing = p;
+    playBtn.textContent = p ? "Pause" : "Play";
+    if (p && !raf) raf = requestAnimationFrame(frame);
+  }
+  function frame() {
+    raf = 0;
+    if (!playing) return;
+    if (visible && !document.hidden) { step(); draw(); }
+    raf = requestAnimationFrame(frame);
+  }
+  playBtn.addEventListener("click", () => setPlay(!playing));
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver((es) => { visible = es[0].isIntersecting; }).observe(stage);
+  }
+
+  countEl.addEventListener("input", () => {
+    N = +countEl.value;
+    document.getElementById("count-v").textContent = Lab.fmt.int(N);
+    initParticles(); draw();
+  });
+  trailEl.addEventListener("input", () => {
+    K = +trailEl.value;
+    document.getElementById("trail-v").textContent = K;
+    initParticles(); draw();
+  });
+  document.getElementById("ink").addEventListener("change", (e) => {
+    ink = e.target.value;
+    document.getElementById("ramp").style.visibility = ink === "mono" ? "hidden" : "visible";
+    draw();
+  });
+  function toggle(id, fn) {
+    const b = document.getElementById(id);
+    b.addEventListener("click", () => {
+      const on = b.getAttribute("aria-pressed") !== "true";
+      b.setAttribute("aria-pressed", String(on));
+      fn(on);
+    });
+  }
+  toggle("isobars", (on) => { showIso = on; drawIsobars(); });
+  toggle("arrows", (on) => { showArr = on; drawArrows(); });
+  Lab.onTheme(() => { readColors(); draw(); });
+
+  Lab.responsive(layout);
+  setPlay(playing);
+
+  Lab.tableView("#centers-table", [
+    { key: "name", label: "System" },
+    { key: "type", label: "Type" },
+    { key: "x", label: "x", align: "r", format: (v) => v.toFixed(2) },
+    { key: "y", label: "y", align: "r", format: (v) => v.toFixed(2) },
+    { key: "amp", label: "Amplitude (hPa)", align: "r", format: (v) => (v > 0 ? "+" : "") + v.toFixed(1) },
+    { key: "s", label: "Radius (world units)", align: "r", format: (v) => v.toFixed(2) },
+    { key: "p", label: "Central pressure (hPa)", align: "r", format: (v) => v.toFixed(1) },
+  ], centers.map((c) => ({ name: c.name, type: c.amp > 0 ? "High" : "Low", x: c.x, y: c.y, amp: c.amp, s: c.s, p: c.p })),
+  "Show the seven pressure centers as a table");
+})();
+</script>
+</body>
+</html>

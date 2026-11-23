@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experimental · Data Viz Lab</title>
+<meta name="description" content="Generative and unusual D3 pieces that still encode real data: wind ink, sunflower sort and stained glass.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .cards .card .thumb { height: 170px; }
+  .cards .card .meta { margin-top: 10px; font-size: 0.8rem; color: var(--text-muted); }
+  .room p { color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/" aria-current="true">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="kicker">Section</p>
+  <h1>Experimental</h1>
+  <p class="lede">Data art with the data left in. Each piece takes a form that no style guide would sanction, binds it to a real (synthetic) dataset, and then says plainly what the form costs in readability.</p>
+
+  <div class="cards">
+    <a class="card" href="flow-field.html">
+      <div class="thumb" id="t-flow" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Wind ink</h3>
+        <p>Thousands of particles riding the wind implied by seven invented pressure systems. Isobars and a vector grid on request.</p>
+        <p class="meta">Canvas · particle advection · d3.contours</p>
+      </div>
+    </a>
+    <a class="card" href="phyllotaxis.html">
+      <div class="thumb" id="t-sun" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Sunflower sort</h3>
+        <p>1,500 orders on a golden-angle spiral. Re-sort by value, date or channel and watch rank turn into radius.</p>
+        <p class="meta">SVG · keyed transitions · object constancy</p>
+      </div>
+    </a>
+    <a class="card" href="voronoi.html">
+      <div class="thumb" id="t-glass" aria-hidden="true"></div>
+      <div class="body">
+        <h3>Stained glass</h3>
+        <p>A soil-moisture network as a leaded window, with a rain front crossing it. Lloyd relaxation shows how pretty a lie can get.</p>
+        <p class="meta">SVG · d3.Delaunay · binned diverging glaze</p>
+      </div>
+    </a>
+  </div>
+
+  <section class="room">
+    <h2>What this room is for</h2>
+    <p>The other rooms ask how to show data well. This one asks what else a dataset can become, and what survives the trip. The rule is that every mark is bound to a value: no decorative noise, no random seeds passing as signal. The forms are chosen for their pull, not their precision, so each page names what it encodes, what it distorts, and the plain chart that would answer the same question faster.</p>
+    <p>Treat them as sketches. Some of these ideas will migrate into the stricter rooms once the honest part is found; most will stay here because they are fun.</p>
+  </section>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  function svg(id) {
+    const el = document.getElementById(id);
+    const w = el.clientWidth || 300, h = el.clientHeight || 170;
+    el.innerHTML = "";
+    return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`).attr("preserveAspectRatio", "xMidYMid slice"), w, h };
+  }
+
+  // Wind ink: streamlines traced through three Gaussian pressure centers.
+  (function () {
+    const { s, w, h } = svg("t-flow");
+    const rand = Lab.rng(42);
+    const C = [{ x: 0.3, y: 0.45, a: -1, r: 0.22 }, { x: 0.72, y: 0.55, a: 1, r: 0.25 }, { x: 0.52, y: 0.05, a: -0.6, r: 0.2 }];
+    function wind(x, y) {
+      let gx = 0, gy = 0.4;
+      C.forEach((c) => {
+        const dx = x - c.x, dy = y - c.y, e = (c.a * Math.exp(-(dx * dx + dy * dy) / (2 * c.r * c.r))) / (c.r * c.r);
+        gx -= dx * e; gy -= dy * e;
+      });
+      return [gy - 0.28 * gx, -gx - 0.28 * gy];
+    }
+    const sx = w / 1.6, x0 = (1.6 - w / sx) / 2;
+    const tones = ["--seq-300", "--seq-400", "--seq-500", "--seq-600"];
+    for (let k = 0; k < 140; k++) {
+      let x = rand() * 1.6, y = rand() * (h / sx);
+      const pts = [];
+      let sp = 0;
+      for (let i = 0; i < 26; i++) {
+        pts.push([(x - x0) * sx, y * sx]);
+        const [u, v] = wind(x, y), m = Math.hypot(u, v) || 1;
+        sp += m;
+        x += (u / m) * 0.012; y += (v / m) * 0.012;
+      }
+      const avg = sp / 26, tone = tones[avg < 0.8 ? 0 : avg < 1.8 ? 1 : avg < 3 ? 2 : 3];
+      s.append("path").attr("d", d3.line()(pts))
+        .style("fill", "none").style("stroke", `var(${tone})`).style("stroke-width", 1).style("stroke-linecap", "round");
+    }
+  })();
+
+  // Sunflower sort: spiral sorted by channel, three annuli.
+  (function () {
+    const { s, w, h } = svg("t-sun");
+    const n = 420, golden = Math.PI * (3 - Math.sqrt(5)), c = (Math.min(w, h) / 2 - 6) / Math.sqrt(n);
+    const b1 = Math.round(n * 0.15), b2 = Math.round(n * 0.62);
+    for (let i = 0; i < n; i++) {
+      const r = c * Math.sqrt(i + 0.5), a = i * golden;
+      s.append("circle").attr("cx", w / 2 + r * Math.cos(a)).attr("cy", h / 2 + r * Math.sin(a)).attr("r", c * 0.46)
+        .style("fill", `var(--series-${i < b1 ? 1 : i < b2 ? 2 : 3})`);
+    }
+  })();
+
+  // Stained glass: Voronoi panes glazed on a diverging ramp, page-colored lead.
+  (function () {
+    const { s, w, h } = svg("t-glass");
+    const rand = Lab.rng(11);
+    const pts = d3.range(70).map(() => [rand() * w, rand() * h]);
+    const vor = d3.Delaunay.from(pts).voronoi([0, 0, w, h]);
+    const mix = (a, p) => `color-mix(in oklab, var(${a}) ${p}%, var(--div-mid))`;
+    const fills = ["var(--div-neg)", mix("--div-neg", 66), mix("--div-neg", 33), "var(--div-mid)", mix("--div-pos", 33), mix("--div-pos", 66), "var(--div-pos)"];
+    pts.forEach((p, i) => {
+      const v = (p[0] / w) * 1.6 - 0.8 + 0.5 * Math.sin(p[1] / 30) + 0.25 * (rand() - 0.5);
+      const bin = Math.max(0, Math.min(6, Math.round(3 + v * 3)));
+      s.append("path").attr("d", vor.renderCell(i)).style("fill", fills[bin])
+        .style("stroke", "var(--surface-1)").style("stroke-width", 2.5).style("stroke-linejoin", "round");
+    });
+  })();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stained glass · Data Viz Lab</title>
+<meta name="description" content="Voronoi cells over a synthetic soil-moisture sensor network, colored by anomaly, with a rain front crossing over 48 hours.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<style>
+  .back { margin: 0 0 1.2rem; font-size: 0.88rem; }
+  .back a { color: var(--text-secondary); text-decoration: none; }
+  .back a:hover { color: var(--text-primary); }
+  #glass svg { touch-action: pan-y; border-radius: 4px; }
+  .controls output { font-variant-numeric: tabular-nums; color: var(--text-primary); min-width: 9.5em; }
+  .controls input[type="range"] { width: 150px; }
+  .readout { font-size: 0.82rem; color: var(--text-muted); margin: 8px 0 0; font-variant-numeric: tabular-nums; min-height: 1.3em; }
+  .key { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 14px; margin: 0 0 10px; font-size: 0.82rem; color: var(--text-secondary); }
+  #timeline { margin-top: 14px; }
+  #timeline svg { cursor: ew-resize; touch-action: none; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../experimental/" aria-current="true">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main>
+  <p class="back"><a href="./">← Experimental</a></p>
+  <p class="kicker">Experimental</p>
+  <h1>Stained glass</h1>
+  <p class="lede">A soil-moisture network rendered as a church window. Each pane is the territory closest to one sensor, glazed by its reading, with the lead lines drawn in the page color. Over two days a rain front crosses from west to east and the glass changes color behind it.</p>
+
+  <div class="figure" id="fig">
+    <p class="figure-title">Soil moisture across 216 sensors, hourly for 48 hours</p>
+    <p class="figure-sub">Anomaly against each sensor's 30-day baseline. A dry patch sits in the east before the front arrives. Hover a pane for its sensor and its 48-hour trace.</p>
+    <div class="controls">
+      <button id="play" type="button">Pause</button>
+      <label>Hour <input id="hour" type="range" min="0" max="47" step="1" value="0"><output id="hour-v">Day 1, 00:00</output></label>
+      <label>Glaze <select id="measure"><option value="anom">Anomaly (diverging)</option><option value="level">Water content (sequential)</option></select></label>
+      <button id="relax" type="button" aria-pressed="false">Lloyd relax</button>
+      <button id="reset" type="button">True positions</button>
+      <button id="mesh" type="button" aria-pressed="false">Sensors and mesh</button>
+    </div>
+    <div class="key" id="key"></div>
+    <div id="glass"></div>
+    <p class="readout" id="drift">Panes drawn at true sensor positions.</p>
+    <div id="timeline"></div>
+  </div>
+
+  <div class="notes">
+    <h3>What is encoded</h3>
+    <ul>
+      <li>Pane color is the reading, binned to seven classes: anomaly on a diverging ramp around zero, or volumetric water content on a single-hue ramp. Binning is deliberate; continuous glass would invite false precision.</li>
+      <li>Pane area is not data. It is the inverse of sensor density, so the sparse corners get the biggest, loudest panes from the fewest readings. That is the central lie of a Voronoi choropleth, and the window makes it beautiful.</li>
+      <li>The strip below is the honest twin: network-mean anomaly by hour, with no geometry to distort it. Drag it to scrub.</li>
+    </ul>
+    <h3>What the relaxation does</h3>
+    <ul>
+      <li>Lloyd relaxation moves every sensor toward the centroid of its own pane, repeatedly, until the panes are even. It looks calmer and it is wrong: readings are now drawn where no sensor stood. The readout counts the drift; the mesh toggle draws each sensor's displacement.</li>
+      <li>Relaxed glass is how most generative Voronoi art is made. Use it to see how much of the original's character was the sampling pattern, not the moisture.</li>
+    </ul>
+  </div>
+  <div id="sensor-table"></div>
+  <p class="source">Data: synthetic, generated in-page with Lab.rng(42). Sensors from a clustered point process (9 parent sites, Gaussian offspring) plus a uniform scatter; baseline water content and static anomaly from smooth Gaussian fields plus noise; hourly series add a diurnal drying cycle, a rain front with a west-to-east arrival between hours 18 and 34, and hourly noise.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const rand = Lab.rng(42);
+  const randn = () => Lab.randn(rand);
+  const HOURS = 48, ASPECT = 0.6;
+  const g2 = (x, y, cx, cy, s2) => Math.exp(-((x - cx) * (x - cx) + (y - cy) * (y - cy)) / s2);
+
+  /* ---------- the data: sensor network ---------- */
+  const raw = [];
+  const parents = d3.range(9).map(() => ({ x: 0.08 + rand() * 0.84, y: (0.08 + rand() * 0.84) * ASPECT }));
+  parents.forEach((p) => {
+    const n = 14 + Math.floor(rand() * 12);
+    for (let k = 0; k < n; k++) raw.push({ x: p.x + 0.05 * randn(), y: p.y + 0.05 * randn() });
+  });
+  while (raw.length < 216) raw.push({ x: rand(), y: rand() * ASPECT });
+  const sensors = raw
+    .filter((p) => p.x > 0.01 && p.x < 0.99 && p.y > 0.01 && p.y < ASPECT - 0.01)
+    .slice(0, 216);
+  while (sensors.length < 216) sensors.push({ x: 0.02 + rand() * 0.96, y: (0.02 + rand() * 0.96) * ASPECT });
+
+  sensors.forEach((s, i) => {
+    const x = s.x, y = s.y / ASPECT; // y normalised 0..1 for the fields
+    s.id = "S-" + String(i + 1).padStart(3, "0");
+    s.base = Math.min(0.42, Math.max(0.07,
+      0.22 + 0.1 * g2(x, y, 0.25, 0.55, 0.06) - 0.07 * g2(x, y, 0.78, 0.25, 0.07) + 0.015 * randn()));
+    const stat = -20 * g2(x, y, 0.72, 0.55, 0.07) + 9 * g2(x, y, 0.18, 0.18, 0.04) - 3 + 3 * randn();
+    const tArr = 18 + 16 * x + 2.5 * Math.pow(y - 0.5, 2) * 4 + 0.8 * randn();
+    const R = 10 + 32 * g2(0, y, 0, 0.5, 0.06) + 3 * randn();
+    s.anom = new Float32Array(HOURS);
+    for (let t = 0; t < HOURS; t++) {
+      const diurnal = -3 * Math.sin((2 * Math.PI * (t - 8)) / 24);
+      const dt = t - tArr;
+      const wet = dt > 0 ? R * (1 - Math.exp(-dt / 1.2)) * Math.exp(-dt / 40) : 0;
+      s.anom[t] = stat + diurnal + wet + 1.2 * randn();
+    }
+    s.tArr = tArr;
+    s.rx = s.x; s.ry = s.y; // drawn position (relaxation moves these)
+  });
+  const level = (s, t) => s.base * (1 + s.anom[t] / 100);
+  const meanByHour = d3.range(HOURS).map((t) => d3.mean(sensors, (s) => s.anom[t]));
+
+  /* ---------- color: tokens only, mixes for the in-between classes ---------- */
+  const mixC = (a, b, p) => `color-mix(in oklab, var(${a}) ${p}%, var(${b}))`;
+  const SCALES = {
+    anom: {
+      th: [-25, -15, -5, 5, 15, 25],
+      fills: ["var(--div-neg)", mixC("--div-neg", "--div-mid", 66), mixC("--div-neg", "--div-mid", 33), "var(--div-mid)",
+              mixC("--div-pos", "--div-mid", 33), mixC("--div-pos", "--div-mid", 66), "var(--div-pos)"],
+      fmtTh: (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v) + "%",
+      title: "Anomaly vs baseline",
+      value: (s, t) => s.anom[t],
+    },
+    level: {
+      th: [0.12, 0.16, 0.2, 0.24, 0.28, 0.32],
+      fills: d3.range(1, 8).map((k) => `var(--seq-${k}00)`),
+      fmtTh: (v) => v.toFixed(2),
+      title: "Volumetric water content (m³/m³)",
+      value: level,
+    },
+  };
+  let measure = "anom";
+  const scale = () => d3.scaleThreshold(SCALES[measure].th, SCALES[measure].fills);
+
+  /* ---------- key ---------- */
+  function drawKey() {
+    const sc = SCALES[measure], sw = 34;
+    const key = d3.select("#key").html("");
+    key.append("span").text(sc.title);
+    const s = key.append("svg").attr("width", sw * 7 + 2).attr("height", 30).attr("viewBox", `0 0 ${sw * 7 + 2} 30`);
+    s.selectAll("rect").data(sc.fills).join("rect")
+      .attr("x", (d, i) => 1 + i * sw).attr("y", 2).attr("width", sw - 2).attr("height", 10).style("fill", (d) => d);
+    s.selectAll("text").data(sc.th).join("text").attr("class", "label").style("font-size", "10px")
+      .attr("x", (d, i) => 1 + (i + 1) * sw - 1).attr("y", 26).attr("text-anchor", "middle").text(sc.fmtTh);
+  }
+
+  /* ---------- glass ---------- */
+  const host = document.getElementById("glass");
+  const svg = d3.select(host).append("svg").attr("role", "img")
+    .attr("aria-label", "Voronoi map of 216 soil moisture sensors, panes colored by reading");
+  const gCells = svg.append("g");
+  const gMesh = svg.append("g").style("pointer-events", "none");
+  const gHover = svg.append("g").style("pointer-events", "none");
+  let W = 0, H = 0, hour = 0, delaunay, voronoi, showMesh = false, hoverIdx = -1;
+
+  const cells = gCells.selectAll("path").data(sensors).join("path")
+    .style("stroke", "var(--surface-1)").style("stroke-linejoin", "round");
+
+  function rebuild() {
+    delaunay = d3.Delaunay.from(sensors, (s) => s.rx * W, (s) => s.ry * W);
+    voronoi = delaunay.voronoi([0, 0, W, H]);
+  }
+  function drawGeometry() {
+    rebuild();
+    cells.attr("d", (s, i) => voronoi.renderCell(i));
+    drawMesh();
+    drawHover();
+  }
+  function drawFills() {
+    const sc = scale(), val = SCALES[measure].value;
+    cells.style("fill", (s) => sc(val(s, hour)));
+  }
+  function drawMesh() {
+    gMesh.selectAll("*").remove();
+    if (!showMesh) return;
+    gMesh.append("path").attr("d", delaunay.render())
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 0.5).style("stroke-opacity", 0.45);
+    const moved = sensors.filter((s) => Math.hypot(s.rx - s.x, s.ry - s.y) * W > 0.5);
+    gMesh.append("path").attr("d", moved.map((s) => `M${(s.x * W).toFixed(1)},${(s.y * W).toFixed(1)}L${(s.rx * W).toFixed(1)},${(s.ry * W).toFixed(1)}`).join(""))
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1.2);
+    gMesh.selectAll("circle").data(sensors).join("circle")
+      .attr("cx", (s) => s.rx * W).attr("cy", (s) => s.ry * W).attr("r", 1.8)
+      .style("fill", "var(--text-primary)");
+  }
+  function drawHover() {
+    gHover.selectAll("*").remove();
+    if (hoverIdx < 0) return;
+    gHover.append("path").attr("d", voronoi.renderCell(hoverIdx))
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 2).style("stroke-linejoin", "round");
+  }
+
+  function spark(s) {
+    const w = 150, h = 34, x = d3.scaleLinear([0, HOURS - 1], [2, w - 2]);
+    const ext = d3.extent(s.anom).map((v, i) => (i ? Math.max(v, 5) : Math.min(v, -5)));
+    const y = d3.scaleLinear(ext, [h - 3, 3]);
+    const line = d3.line((v, i) => x(i), y)(Array.from(s.anom));
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin-top:4px">` +
+      `<line x1="2" x2="${w - 2}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" style="stroke:var(--grid)"/>` +
+      `<path d="${line}" style="fill:none;stroke:var(--text-secondary);stroke-width:1.2"/>` +
+      `<circle cx="${x(hour).toFixed(1)}" cy="${y(s.anom[hour]).toFixed(1)}" r="2.6" style="fill:var(--text-primary)"/></svg>`;
+  }
+  function tipHtml(s) {
+    const a = s.anom[hour];
+    return `<div><b>${s.id}</b> <span class="tt-k">${hourLabel(hour)}</span></div>` +
+      `<div><span class="tt-k">Anomaly</span> ${a > 0 ? "+" : ""}${a.toFixed(1)}%</div>` +
+      `<div><span class="tt-k">Water content</span> ${level(s, hour).toFixed(3)} (baseline ${s.base.toFixed(3)})</div>` +
+      `<div><span class="tt-k">Front arrives</span> hour ${Math.max(0, Math.round(s.tArr))}</div>` + spark(s);
+  }
+  let lastEv = null;
+  svg.on("pointermove", (ev) => {
+    lastEv = ev;
+    const [mx, my] = d3.pointer(ev, svg.node());
+    hoverIdx = delaunay.find(mx, my, hoverIdx < 0 ? 0 : hoverIdx);
+    drawHover();
+    Lab.tooltip.show(ev, tipHtml(sensors[hoverIdx]));
+  }).on("pointerleave", () => { hoverIdx = -1; lastEv = null; drawHover(); Lab.tooltip.hide(); });
+
+  /* ---------- timeline strip (the honest twin) ---------- */
+  const tlHost = document.getElementById("timeline");
+  const tl = d3.select(tlHost).append("svg");
+  let tx;
+  function drawTimeline() {
+    const w = W, h = 74, m = { l: 36, r: 8, t: 16, b: 18 };
+    tl.attr("width", w).attr("height", h).attr("viewBox", `0 0 ${w} ${h}`).html("");
+    tx = d3.scaleLinear([0, HOURS - 1], [m.l, w - m.r]);
+    const ext = d3.extent(meanByHour);
+    const y = d3.scaleLinear([Math.min(-5, ext[0]), Math.max(5, ext[1])], [h - m.b, m.t]).nice();
+    tl.append("text").attr("class", "label").attr("x", 0).attr("y", 10).text("Network mean anomaly, %");
+    tl.append("g").attr("class", "grid").selectAll("line").data(y.ticks(3)).join("line")
+      .attr("x1", m.l).attr("x2", w - m.r).attr("y1", y).attr("y2", y)
+      .style("stroke", (d) => (d === 0 ? "var(--axis)" : null));
+    tl.append("g").attr("class", "axis").selectAll("text").data(y.ticks(3)).join("text")
+      .attr("x", m.l - 6).attr("y", y).attr("dy", "0.32em").attr("text-anchor", "end").text((d) => (d > 0 ? "+" : "") + d);
+    tl.append("g").attr("class", "axis").selectAll("text").data([0, 12, 24, 36]).join("text")
+      .attr("x", tx).attr("y", h - 4).attr("text-anchor", "start")
+      .text((d) => (d % 24 === 0 ? `Day ${d / 24 + 1}` : "12:00"));
+    tl.append("path").attr("d", d3.line((v, i) => tx(i), y)(meanByHour))
+      .style("fill", "none").style("stroke", "var(--text-primary)").style("stroke-width", 1.5);
+    tl.append("line").attr("class", "now").attr("y1", m.t - 4).attr("y2", h - m.b)
+      .style("stroke", "var(--text-primary)").style("stroke-width", 1);
+    tl.append("circle").attr("class", "now-dot").attr("r", 3).style("fill", "var(--text-primary)");
+    tl.append("rect").attr("x", m.l).attr("y", 0).attr("width", w - m.l - m.r).attr("height", h).style("fill", "transparent");
+    tl.node()._y = y;
+    moveNow();
+  }
+  function moveNow() {
+    if (!tx) return;
+    const y = tl.node()._y;
+    tl.select(".now").attr("x1", tx(hour)).attr("x2", tx(hour));
+    tl.select(".now-dot").attr("cx", tx(hour)).attr("cy", y(meanByHour[hour]));
+  }
+  function scrubFrom(ev) {
+    const [mx] = d3.pointer(ev, tl.node());
+    setHour(Math.round(Math.max(0, Math.min(HOURS - 1, tx.invert(mx)))));
+  }
+  let scrubbing = false;
+  tl.on("pointerdown", (ev) => { scrubbing = true; setPlay(false); tl.node().setPointerCapture && tl.node().setPointerCapture(ev.pointerId); scrubFrom(ev); })
+    .on("pointermove", (ev) => { if (scrubbing) scrubFrom(ev); })
+    .on("pointerup pointercancel", () => { scrubbing = false; });
+
+  /* ---------- time ---------- */
+  const hourEl = document.getElementById("hour"), hourOut = document.getElementById("hour-v");
+  function hourLabel(t) { return `Day ${Math.floor(t / 24) + 1}, ${String(t % 24).padStart(2, "0")}:00`; }
+  function setHour(t) {
+    hour = t;
+    hourEl.value = t;
+    hourOut.textContent = hourLabel(t);
+    drawFills();
+    moveNow();
+    if (hoverIdx >= 0 && lastEv) Lab.tooltip.show(lastEv, tipHtml(sensors[hoverIdx]));
+  }
+  hourEl.addEventListener("input", () => { setPlay(false); setHour(+hourEl.value); });
+
+  /* ---------- relaxation ---------- */
+  let relaxTarget = null; // "centroid" | "true" | null
+  const relaxBtn = document.getElementById("relax");
+  function relaxStep(f) {
+    let moved = 0;
+    sensors.forEach((s, i) => {
+      let tx_, ty_;
+      if (relaxTarget === "centroid") {
+        const poly = voronoi.cellPolygon(i);
+        if (!poly) return;
+        const c = d3.polygonCentroid(poly);
+        tx_ = c[0] / W; ty_ = c[1] / W;
+      } else { tx_ = s.x; ty_ = s.y; }
+      const dx = (tx_ - s.rx) * f, dy = (ty_ - s.ry) * f;
+      s.rx += dx; s.ry += dy;
+      moved = Math.max(moved, Math.hypot(dx, dy) * W);
+    });
+    rebuild();
+    return moved;
+  }
+  function driftReadout() {
+    const d = d3.mean(sensors, (s) => Math.hypot(s.rx - s.x, s.ry - s.y)) * W;
+    document.getElementById("drift").textContent = d < 0.05
+      ? "Panes drawn at true sensor positions."
+      : `Mean drift from true sensor position: ${d.toFixed(1)} px (${(d / W * 100).toFixed(1)}% of the map width). Readings are now drawn where no sensor stood.`;
+  }
+  function settle() {
+    // Reduced motion: jump straight to the end state.
+    for (let k = 0; k < 400 && relaxTarget; k++) { if (relaxStep(relaxTarget === "true" ? 1 : 0.5) < 0.01) break; }
+    relaxDone();
+  }
+  function relaxDone() {
+    if (relaxTarget === "true") sensors.forEach((s) => { s.rx = s.x; s.ry = s.y; });
+    relaxTarget = null;
+    relaxBtn.setAttribute("aria-pressed", "false");
+    drawGeometry(); driftReadout();
+  }
+  function startRelax(target) {
+    relaxTarget = target;
+    relaxBtn.setAttribute("aria-pressed", String(target === "centroid"));
+    if (Lab.reducedMotion()) { settle(); return; }
+    kick();
+  }
+  relaxBtn.addEventListener("click", () => {
+    if (relaxTarget === "centroid") { relaxTarget = null; relaxBtn.setAttribute("aria-pressed", "false"); return; }
+    startRelax("centroid");
+  });
+  document.getElementById("reset").addEventListener("click", () => startRelax("true"));
+
+  /* ---------- animation loop ---------- */
+  let playing = !Lab.reducedMotion(), raf = 0, lastTick = 0, visible = true;
+  const STEP_MS = 380;
+  const playBtn = document.getElementById("play");
+  function setPlay(p) { playing = p; playBtn.textContent = p ? "Pause" : "Play"; if (p) kick(); }
+  function kick() { if (!raf) raf = requestAnimationFrame(frame); }
+  function frame(ts) {
+    raf = 0;
+    if (!playing && !relaxTarget) return;
+    if (visible && !document.hidden) {
+      if (playing && ts - lastTick > STEP_MS) { lastTick = ts; setHour((hour + 1) % HOURS); }
+      if (relaxTarget) {
+        const moved = relaxStep(relaxTarget === "true" ? 0.12 : 0.08);
+        cells.attr("d", (s, i) => voronoi.renderCell(i));
+        drawMesh(); drawHover(); driftReadout();
+        if (moved < 0.02) relaxDone();
+      }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  playBtn.addEventListener("click", () => setPlay(!playing));
+  if ("IntersectionObserver" in window) new IntersectionObserver((es) => { visible = es[0].isIntersecting; }).observe(host);
+
+  /* ---------- controls ---------- */
+  document.getElementById("measure").addEventListener("change", (e) => { measure = e.target.value; drawKey(); drawFills(); });
+  const meshBtn = document.getElementById("mesh");
+  meshBtn.addEventListener("click", () => {
+    showMesh = !showMesh; meshBtn.setAttribute("aria-pressed", String(showMesh)); drawMesh();
+  });
+
+  /* ---------- layout ---------- */
+  function layout() {
+    W = Math.max(280, Math.floor(Lab.width(document.getElementById("fig"))));
+    H = Math.round(W * ASPECT);
+    svg.attr("width", W).attr("height", H).attr("viewBox", `0 0 ${W} ${H}`);
+    cells.style("stroke-width", Math.max(1.5, Math.min(3.5, W / 360)));
+    drawGeometry();
+    drawFills();
+    drawTimeline();
+    driftReadout();
+  }
+
+  drawKey();
+  Lab.responsive(layout);
+  setHour(Lab.reducedMotion() ? 30 : 0);
+  setPlay(playing);
+
+  Lab.tableView("#sensor-table", [
+    { key: "id", label: "Sensor" },
+    { key: "x", label: "x", align: "r", format: (v) => v.toFixed(3) },
+    { key: "y", label: "y", align: "r", format: (v) => v.toFixed(3) },
+    { key: "base", label: "Baseline VWC", align: "r", format: (v) => v.toFixed(3) },
+    { key: "a0", label: "Anomaly h0", align: "r", format: (v) => v.toFixed(1) + "%" },
+    { key: "amin", label: "Min", align: "r", format: (v) => v.toFixed(1) + "%" },
+    { key: "amax", label: "Max", align: "r", format: (v) => v.toFixed(1) + "%" },
+    { key: "arr", label: "Front arrives (h)", align: "r", format: (v) => Math.max(0, Math.round(v)) },
+  ], sensors.map((s) => ({ id: s.id, x: s.x, y: s.y, base: s.base, a0: s.anom[0], amin: d3.min(s.anom), amax: d3.max(s.anom), arr: s.tArr })),
+  "Show the 216 sensors as a table");
+})();
+</script>
+</body>
+</html>
