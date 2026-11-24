@@ -1,202 +1,327 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The engineer's eye · Data Viz Lab</title>
-<meta name="description" content="Load logs, lineage, star schemas, data-quality tests and schema drift, drawn with a data visualization practitioner's eye.">
-<link rel="stylesheet" href="../assets/css/lab.css">
-<script src="../assets/vendor/d3-7.9.0.min.js"></script>
-<script src="../assets/js/lab.js"></script>
-<script src="warehouse.js"></script>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>The engineer&#x27;s eye · Data Viz Lab · Futobi Labs</title><meta name="description" content="Load logs, lineage, star schemas, data-quality tests and schema drift, drawn with a data visualization practitioner&#x27;s eye.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  .cards .card .thumb { height: 160px; }
-  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 1.5rem 0 0.5rem; }
-  .fact { border-top: 2px solid var(--text-primary); padding-top: 6px; }
-  .fact .v { font-size: 1.6rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-  .fact .k { font-size: 0.85rem; color: var(--text-secondary); }
-  .layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 32px; margin-top: 0.8rem; }
-  .layers p { margin: 0.3rem 0; font-size: 0.95rem; color: var(--text-secondary); }
-  .layers strong { color: var(--text-primary); font-weight: 600; }
-</style>
-</head>
-<body>
-<header class="site-header">
-  <a class="brand" href="../">Data Viz Lab</a>
-  <nav>
-    <a href="../engineer/" aria-current="true">Engineer's eye</a>
-    <a href="../pressroom/">Pressroom</a>
-    <a href="../experimental/">Experimental</a>
-    <a href="../few/">Stephen Few</a>
-    <a href="../tufte/">Tufte</a>
-    <a href="../new/">New</a>
-  </nav>
-  <button class="theme-toggle" type="button">Theme: auto</button>
-</header>
+/* Test Print: the lab theme. Cut from the v14 Zoom site: same paper, inks, type and zoom dot.
+   Each lab pulls its cover in one plate colour and is marked like a printer's proof. */
+:root{
+  --paper:#EFE9DD; --paper2:#F6F2EA; --ink:#1D1B18; --stone:#CBC4B6; --soft:#5E5A52;
+  --cobalt:#1F3FD1; --ochre:#C08A22; --clay:#A9441F; --sun:#D2592C;
+  /* chart inks, fixed order, validated on paper */
+  --i1:#1F3FD1; --i2:#D2592C; --i3:#6B3FA0; --i4:#9C6B12; --i5:#13805A;
+  --disp:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --hudH:74px;
+  /* page plate defaults (paper) */
+  --bg:var(--paper); --fg:var(--ink); --fg2:var(--soft); --acc:var(--cobalt); --rule:var(--ink); --dot:rgba(29,27,24,.45);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--paper);color:var(--ink);font:400 16px/1.5 var(--disp);-webkit-font-smoothing:antialiased;padding-bottom:calc(var(--hudH) + 28px + env(safe-area-inset-bottom,0px))}
+a{color:inherit}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2.5px solid var(--sun);outline-offset:2px}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* grain over every plate */
+.grain{position:relative;isolation:isolate}
+.grain::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.35;mix-blend-mode:multiply;
+  background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.4 1.05'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>") 0 0/200px}
+.dark.grain::after{mix-blend-mode:screen;opacity:.12;filter:invert(1)}
+.grain>*{position:relative;z-index:1}
+
+/* top bar, as on the main site */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--paper)}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--paper);border-bottom:1.5px solid var(--ink)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px}
+.wm{display:flex;align-items:baseline;gap:8px;text-decoration:none;min-width:0}
+.wm b{font:850 16px/1 var(--disp);font-variation-settings:"wdth" 72;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+.wm span{font:500 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--soft);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1.5px solid currentColor;font:600 10.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;text-decoration:none;white-space:nowrap;background:none;cursor:pointer}
+.pill:hover{background:var(--ink);color:var(--paper)}
+
+/* the cover plate */
+.cover{background:var(--bg);color:var(--fg);overflow:hidden;border-bottom:1.5px solid var(--ink)}
+.cover .wrap{padding-block:34px 22px;display:grid;gap:16px}
+.cover::before{content:"";position:absolute;right:-10vmax;bottom:-10vmax;width:58vmax;height:58vmax;pointer-events:none;z-index:0;
+  background:radial-gradient(circle,var(--dot) 1.3px,transparent 1.6px) 0 0/9px 9px;
+  -webkit-mask:radial-gradient(circle at 100% 100%,#000 0,transparent 66%);mask:radial-gradient(circle at 100% 100%,#000 0,transparent 66%);opacity:.55}
+/* crop marks: this is a proof, not the final run */
+.crop{position:absolute;width:18px;height:18px;z-index:2;pointer-events:none;border-color:var(--fg);opacity:.7}
+.crop.tl{left:8px;top:8px;border-left:1.5px solid;border-top:1.5px solid}
+.crop.tr{right:8px;top:8px;border-right:1.5px solid;border-top:1.5px solid}
+.crop.bl{left:8px;bottom:8px;border-left:1.5px solid;border-bottom:1.5px solid}
+.crop.br{right:8px;bottom:8px;border-right:1.5px solid;border-bottom:1.5px solid}
+.k{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font:500 11px/1.3 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--fg2)}
+.k b{font-weight:600;background:var(--fg);color:var(--bg);padding:3px 6px;letter-spacing:.08em}
+h1,h2{margin:0;font:850 clamp(48px,13vw,128px)/.84 var(--disp);font-variation-settings:"wdth" 62;text-transform:uppercase;letter-spacing:-.005em;text-wrap:balance}
+h2{font-size:clamp(36px,8.4vw,76px)}
+h1 em,h2 em{font-style:normal;color:var(--acc)}
+.nw{white-space:nowrap}
+.lead{margin:0;font:600 clamp(19px,2.8vw,27px)/1.22 var(--disp);max-width:30ch}
+p{margin:0;max-width:60ch}
+.small{font-size:14.5px;line-height:1.45}
+
+/* the seed: the headline's full stop is the way in */
+.seed{all:unset;display:inline-block;width:.2em;height:.2em;margin-left:.05em;border-radius:50%;background:var(--acc);vertical-align:baseline;position:relative;cursor:zoom-in}
+.seed::before{content:"";position:absolute;inset:-.22em}
+.seed::after{content:"";position:absolute;inset:-.12em;border-radius:50%;border:2px solid var(--acc);animation:ping 2.2s cubic-bezier(.2,.6,.3,1) 1s infinite;opacity:0}
+.seed:focus-visible{outline:2.5px solid var(--sun);outline-offset:4px}
+@keyframes ping{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.4);opacity:0}}
+
+/* colour control bar along the foot of every cover */
+.cbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:6px}
+.cbar .sw{display:flex;border:1.5px solid var(--fg)}
+.cbar .sw i{width:16px;height:16px;display:block}
+.cbar span{font:500 10px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--fg2)}
+
+/* sections on paper */
+.sec{padding-block:30px 6px}
+.sh{display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:3px solid var(--ink);padding-bottom:6px;margin-bottom:2px}
+.sh h3{margin:0;font:850 clamp(26px,6vw,40px)/.9 var(--disp);font-variation-settings:"wdth" 66;text-transform:uppercase}
+.sh span{font:500 10.5px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--soft);text-align:right}
+.rooms{list-style:none;margin:0;padding:0}
+.rooms li{display:grid;grid-template-columns:3.2ch minmax(0,1fr) auto;gap:4px 12px;align-items:baseline;padding:12px 0;border-bottom:1.5px solid var(--ink)}
+.rooms .n{font:600 11px/1.4 var(--mono);letter-spacing:.08em;color:var(--soft)}
+.rooms h4{margin:0;font:800 21px/1.1 var(--disp);font-variation-settings:"wdth" 78}
+.rooms p{grid-column:2;font-size:14.5px;line-height:1.4;color:var(--ink)}
+.rooms .c{font:500 10.5px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--soft);white-space:nowrap}
+.rooms li.feat{border-bottom-width:3px}
+.rooms li.feat h4 em{font-style:normal;color:var(--acc)}
+.go{display:inline-flex;align-items:center;gap:9px;min-height:42px;padding:0 15px 0 12px;border:1.5px solid currentColor;background:transparent;cursor:zoom-in;
+  font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;text-decoration:none;justify-self:start}
+.go:hover{background:var(--ink);color:var(--paper)}
+.go i{width:12px;height:12px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 1.5px currentColor}
+@media (min-width:860px){.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:start}}
+
+/* the room: what you land in when you zoom through the dot */
+.room{position:fixed;inset:0;z-index:40;overflow:auto;overscroll-behavior:contain;background:var(--rbg,var(--paper2));color:var(--ink);
+  clip-path:circle(0px at var(--x,50%) var(--y,50%));transition:clip-path 760ms cubic-bezier(.62,0,.2,1);visibility:hidden}
+.room.open{clip-path:circle(var(--r,150vmax) at var(--x,50%) var(--y,50%));visibility:visible}
+.room.shut{visibility:visible}
+.room .rtop{position:sticky;top:0;z-index:2;background:var(--rbg,var(--paper2));border-bottom:1.5px solid var(--ink);padding-top:env(safe-area-inset-top,0px)}
+.room .rtop .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px}
+.room .rbody{padding-block:22px 40px;display:grid;gap:16px}
+.room h2{font-size:clamp(38px,9vw,80px)}
+.ttl{margin:0;font:700 clamp(18px,2.6vw,24px)/1.25 var(--disp);max-width:36ch}
+.fig{border:1.5px solid var(--ink);background:var(--paper);padding:14px 12px 10px;min-width:0}
+.fig svg{display:block;width:100%;height:auto;overflow:visible}
+.cap{font:500 10.5px/1.5 var(--mono);letter-spacing:.06em;color:var(--soft)}
+.ax{font:500 10px var(--mono);fill:var(--soft)}
+.lbl{font:600 12px var(--disp);fill:var(--ink)}
+.notes{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.notes li{padding:10px 0;border-top:1.5px solid var(--ink);font-size:15px;line-height:1.4}
+.notes li b{font-weight:750}
+.tip{position:fixed;z-index:60;pointer-events:none;background:var(--ink);color:var(--paper);font:500 11.5px/1.45 var(--mono);padding:7px 10px;max-width:260px;opacity:0;transition:opacity .1s}
+.tip.on{opacity:1}
+
+/* bottom bar: lab switcher, as the main site's stop bar */
+.hud{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:35;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;
+  padding:8px 8px 8px 14px;background:var(--paper);color:var(--ink);border:1.5px solid var(--ink)}
+.hud .num{font:850 26px/1 var(--disp);font-variation-settings:"wdth" 70}
+.hud .num small{font:500 11px var(--mono);color:var(--soft);margin-left:3px}
+.hud .nm{min-width:0}
+.hud .nm b{display:block;font:750 14px/1.15 var(--disp);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bars{display:flex;gap:4px;margin-top:5px}
+.bars a{flex:1;min-width:0;height:22px;display:grid;place-items:center;text-decoration:none}
+.bars a::before{content:"";width:100%;max-width:44px;height:4px;background:rgba(29,27,24,.25)}
+.bars a[aria-current]::before{background:var(--sun);height:8px}
+.hud .hint{display:block;font:500 9.5px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud .home{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--ink);display:grid;place-items:center;text-decoration:none;font:600 16px/1 var(--disp)}
+.hud .home:hover{background:var(--ink);color:var(--paper)}
+@media (min-width:760px){.hud{left:50%;right:auto;transform:translateX(-50%);width:min(680px,calc(100vw - 40px))}}
+.stamp{font:500 10px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--soft);padding-block:26px 0}
+@media (prefers-reduced-motion:reduce){.seed::after{animation:none}.room{transition:none}}
+
+/* The bridge: a Test Print window onto each real experience, and the room it grows into.
+   The experience inside keeps its own design; only the frame around it is Test Print. */
+.win{position:relative;display:block;text-decoration:none;color:var(--ink);background:var(--ink);border:1.5px solid var(--ink);cursor:zoom-in;margin:0 0 18px;isolation:isolate}
+.win .crop{border-color:var(--ink);opacity:1;z-index:4}
+.win .crop.tl{left:-10px;top:-10px}.win .crop.tr{right:-10px;top:-10px}.win .crop.bl{left:-10px;bottom:-10px}.win .crop.br{right:-10px;bottom:-10px}
+.win-bar{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;background:var(--paper);border-bottom:1.5px solid var(--ink);font:500 10.5px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.win-bar .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--soft)}
+.win-bar .t b{color:var(--ink);font-weight:600}
+.live{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--ink)}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--sun);animation:blink 1.6s steps(2,end) infinite}
+@keyframes blink{50%{opacity:.25}}
+.win-go{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px 0 8px;border:1.5px solid var(--ink);font-weight:600;white-space:nowrap}
+.win-go i{width:11px;height:11px;border-radius:50%;background:var(--wacc,var(--sun));box-shadow:0 0 0 1.5px var(--ink)}
+.win:hover .win-go,.win:focus-visible .win-go{background:var(--ink);color:var(--paper)}
+.win-view{position:relative;overflow:hidden;aspect-ratio:16/10;background:
+  repeating-linear-gradient(135deg,rgba(246,242,234,.06) 0 8px,transparent 8px 16px),var(--ink)}
+@media (max-width:600px){.win-view{aspect-ratio:4/5}}
+.win-view::before{content:"Loading the real thing";position:absolute;inset:auto 0 46% 0;text-align:center;font:500 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:rgba(246,242,234,.5)}
+.win-view iframe{position:absolute;left:0;top:0;border:0;transform-origin:0 0;pointer-events:none;background:transparent;opacity:0;transition:opacity .5s}
+.win-view iframe.ready{opacity:1}
+/* a soft press on hover: the window lifts toward you, the Go in dot swells */
+.win-view::after{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 0 var(--wacc,var(--sun));transition:box-shadow .25s}
+.win:hover .win-view::after{box-shadow:inset 0 0 0 4px var(--wacc,var(--sun))}
+.win .orb{position:absolute;right:16px;bottom:16px;z-index:3;width:58px;height:58px;border-radius:50%;background:var(--wacc,var(--sun));box-shadow:0 0 0 2px var(--ink),0 6px 0 var(--ink);display:grid;place-items:center;
+  font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--wfg,var(--ink));transition:transform .25s cubic-bezier(.3,1.6,.5,1)}
+.win:hover .orb{transform:scale(1.14)}
+.win .orb::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid var(--wacc,var(--sun));animation:ping 2.2s cubic-bezier(.2,.6,.3,1) 1s infinite;opacity:0}
+.win-cap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:8px 10px;background:var(--paper);border-top:1.5px solid var(--ink);font:500 10.5px/1.4 var(--mono);letter-spacing:.06em;color:var(--soft)}
+.win-cap b{color:var(--ink);font:750 15px/1.2 var(--disp);letter-spacing:0}
+.later{font:500 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--soft);border:1.5px dashed var(--soft);padding:2px 6px;white-space:nowrap}
+
+/* the full room: Test Print strip on top, the experience below, untouched */
+.room.full{overflow:hidden;display:flex;flex-direction:column;background:var(--ink)}
+.room.full .rtop{position:relative;background:var(--paper)}
+.room.full .rtop .wrap{max-width:none}
+.room.full .exp{flex:1;width:100%;border:0;display:block;background:transparent}
+.rbars{display:flex;gap:4px;width:120px}
+.rbars a{flex:1;height:22px;display:grid;place-items:center}
+.rbars a::before{content:"";width:100%;height:4px;background:rgba(29,27,24,.25)}
+.rbars a[aria-current]::before{background:var(--sun);height:8px}
+.rtop .side{display:flex;align-items:center;gap:12px}
+@media (max-width:520px){.rbars{display:none}}
+@media (prefers-reduced-motion:reduce){.live::before,.win .orb::after{animation:none}.win .orb{transition:none}}
+
+.cover{--bg:var(--ink);--fg:#F6F2EA;--fg2:#aaa396;--acc:var(--sun);--dot:rgba(210,89,44,.5)}
+.win{--wacc:var(--sun)}
+
+.rooms h4 a{color:inherit;text-decoration:none}.rooms h4 a:hover{text-decoration:underline}
+.notes li{grid-template-columns:3.2ch minmax(0,1fr)}.notes h4{font-size:19px}
+.nintro{font-size:15px;line-height:1.45;max-width:62ch;margin:12px 0 4px}
+.cover .back a{color:var(--fg);font:500 11px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;text-decoration:none;border-bottom:1.5px solid currentColor}
+.shelves{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 18px}
+@media (max-width:640px){.shelves{grid-template-columns:1fr}}
+.shelves a{display:block;text-decoration:none;color:inherit;padding:12px 0;border-bottom:1.5px solid var(--ink)}
+.shelves b{display:block;font:800 18px/1.15 var(--disp);font-variation-settings:"wdth" 78}
+.shelves a:hover b{text-decoration:underline}
+.shelves span{display:block;font-size:14px;line-height:1.35;margin-top:2px}
+.shelves i{font:500 10.5px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--soft);font-style:normal}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-left:1.5px solid var(--ink);margin-top:10px}
+@media (max-width:640px){.facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.facts div{border-right:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);padding:10px 12px}
+.facts b{display:block;font:850 clamp(30px,6vw,46px)/1 var(--disp);font-variation-settings:"wdth" 66;font-variant-numeric:tabular-nums}
+.facts span{display:block;font:500 10.5px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--soft);margin-top:4px}
+.files a{color:inherit}
+
+</style></head><body>
+<header class="top"><div class="wrap"><a class="wm" href="/"><b>Futobi</b><span>/ Labs</span></a><a class="pill" href="https://github.com/tannerspaulding" rel="noopener">GitHub ↗</a></div></header>
 
 <main>
-  <p class="kicker">The engineer's eye</p>
-  <h1>The engineer's eye</h1>
-  <p class="lede">Data engineers spend their nights inside load logs, lineage graphs, star schemas and test results, and almost all of it gets drawn as a red-or-green table. These pages draw it the way a visualization person would: one warehouse, one year of nightly loads, five ways of looking.</p>
+<section class="cover grain"><i class="crop tl"></i><i class="crop tr"></i><i class="crop bl"></i><i class="crop br"></i><div class="wrap">
+  <div class="k"><b>01.1</b><span>Futobi Labs · Data viz · Room 1 of 3</span></div>
+  <h1>The <em>engineer's</em> eye<button class="seed" data-zoom aria-label="Go into The nightly heartbeat"></button></h1>
+  <p class="lead">One warehouse, one year of nightly loads, five ways of looking.</p>
+  <p class="small">Data engineers live inside load logs, lineage graphs, star schemas and test results, and almost all of it gets drawn as a red-or-green table. These pages draw it the way a visualization person would.</p>
+  <p class="back small"><a href="/dataviz-lab/">← Data Viz Lab</a></p>
+  <div class="cbar"><span class="sw"><i style="background:var(--i1)"></i><i style="background:var(--i2)"></i><i style="background:var(--i3)"></i><i style="background:var(--i4)"></i><i style="background:var(--i5)"></i><i style="background:var(--ink)"></i><i style="background:var(--paper)"></i></span><span>Test print · room 01.1 · Nov 2026</span></div>
+</div></section>
 
-  <div class="facts" id="facts" aria-label="The warehouse in numbers"></div>
-  <p class="source">Computed in-page from the shared model below.</p>
-
-  <div class="cards">
-    <a class="card" href="heartbeat.html">
-      <div class="thumb" id="t-heart" aria-hidden="true"></div>
-      <div class="body">
-        <h3>The nightly heartbeat</h3>
-        <p>A year of Gold finish times in one strip, and any night opened up task by task: what waited on a source, a dependency or a free slot, and which chain set the finish.</p>
-      </div>
-    </a>
-    <a class="card" href="lineage.html">
-      <div class="thumb" id="t-lineage" aria-hidden="true"></div>
-      <div class="body">
-        <h3>Lineage as a transit map</h3>
-        <p>Source systems as lines, tables as stations, conformed tables as interchanges. Then a single Gold column traced back to the Bronze columns it came from.</p>
-      </div>
-    </a>
-    <a class="card" href="constellation.html">
-      <div class="thumb" id="t-sky" aria-hidden="true"></div>
-      <div class="body">
-        <h3>Star schemas, taken literally</h3>
-        <p>Facts as constellations, conformed dimensions as the stars they share. Beside it, the Kimball bus matrix, which says the same thing more usefully.</p>
-      </div>
-    </a>
-    <a class="card" href="dq-calendar.html">
-      <div class="thumb" id="t-dq" aria-hidden="true"></div>
-      <div class="body">
-        <h3>A year of tests</h3>
-        <p>Every data-quality result on a calendar. The weekly rhythm, the incidents, and the month-end test that cries wolf twelve times a year.</p>
-      </div>
-    </a>
-    <a class="card" href="schema-drift.html">
-      <div class="thumb" id="t-drift" aria-hidden="true"></div>
-      <div class="body">
-        <h3>Schema drift</h3>
-        <p>Every table's columns over the year, and how long a new column takes to travel from Bronze to Gold.</p>
-      </div>
-    </a>
+<div class="wrap">
+<section class="sec">
+  <div class="sh"><h3>Views</h3><span>5 views · 1 warehouse</span></div>
+  <div class="win" data-zoom tabindex="0" role="button" aria-label="Go into The nightly heartbeat" data-src="heartbeat.html" data-hide="header.site-header,p.back,main&gt;p:has(&gt;a[href=&#x27;./&#x27;]:only-child)" data-name="The nightly heartbeat" data-num="01.1">
+    <i class="crop tl"></i><i class="crop tr"></i><i class="crop bl"></i><i class="crop br"></i>
+    <div class="win-bar"><span class="live">Live</span><span class="t"><b>01.1</b> · The engineer&#x27;s eye · The nightly heartbeat</span><span class="win-go"><i data-origin></i>Go in</span></div>
+    <div class="win-view"><iframe tabindex="-1" aria-hidden="true" title="Preview of The nightly heartbeat"></iframe><span class="orb" aria-hidden="true">In</span></div>
+    <div class="win-cap"><b>A year of nightly loads, as a heartbeat</b><span>The real page in its own style · synthetic data, nothing from a client</span></div>
   </div>
-
-  <h2>The warehouse</h2>
-  <p>A fictional distributor running a medallion warehouse of the kind you would build in Fabric: six source systems landing nightly, cleaned and conformed, then modeled into a star schema. The year is simulated, not drawn by hand. A scheduler with four slots runs each table when its source has arrived and its dependencies have finished, so every wait, cascade and late night follows from the rules.</p>
-  <div class="layers">
-    <p><strong>Bronze.</strong> Raw landings from ERP, CRM, warehouse management, web events, the general ledger and HR. Stored as-is, typed as the source sends it.</p>
-    <p><strong>Silver.</strong> Cleaned, typed and conformed. Customers merged across ERP and CRM; currency converted; sessions built from events.</p>
-    <p><strong>Gold.</strong> Seven dimensions and seven facts. The layer the business reads, and the one with a 06:00 deadline.</p>
-  </div>
-  <p>Six stories are planted in the year and left for the pictures to find: Black Friday, an unannounced ERP rename, a spring of orphaned CRM accounts, a fortnight of throttled capacity, a bot, and a CRM vendor that cut its API limits.</p>
-
-  <p class="source" id="src"></p>
+  <div class="facts" aria-label="The warehouse in numbers"><div><b>42</b><span>tables in three layers</span></div><div><b>6</b><span>source systems</span></div><div><b>365</b><span>nightly loads</span></div><div><b>03:48</b><span>median Gold finish</span></div><div><b>23</b><span>nights that missed 06:00 or broke</span></div><div><b>51,100</b><span>test results</span></div></div>
+  <ul class="rooms"><li class="feat"><span class="n">01</span><h4><a href="heartbeat.html">The nightly heartbeat</a></h4><span class="c">Load timings</span><p>A year of Gold finish times in one strip, and any night opened up task by task: what waited on a source, a dependency or a free slot, and which chain set the finish.</p><p><button class="go" data-zoom data-src="heartbeat.html" data-hide="header.site-header,p.back,main&gt;p:has(&gt;a[href=&#x27;./&#x27;]:only-child)" data-name="The nightly heartbeat" data-num="01.1"><i></i>Go in</button></p></li><li><span class="n">02</span><h4><a href="lineage.html">Lineage as a transit map</a></h4><span class="c">Lineage</span><p>Source systems as lines, tables as stations, conformed tables as interchanges. Then a single Gold column traced back to the Bronze columns it came from.</p><p><button class="go" data-zoom data-src="lineage.html" data-hide="header.site-header,p.back,main&gt;p:has(&gt;a[href=&#x27;./&#x27;]:only-child)" data-name="Lineage as a transit map" data-num="01.1"><i></i>Go in</button></p></li><li><span class="n">03</span><h4><a href="constellation.html">Star schemas, taken literally</a></h4><span class="c">Star schemas</span><p>Facts as constellations, conformed dimensions as the stars they share. Beside it, the Kimball bus matrix, which says the same thing more usefully.</p><p><button class="go" data-zoom data-src="constellation.html" data-hide="header.site-header,p.back,main&gt;p:has(&gt;a[href=&#x27;./&#x27;]:only-child)" data-name="Star schemas, taken literally" data-num="01.1"><i></i>Go in</button></p></li><li><span class="n">04</span><h4><a href="dq-calendar.html">A year of tests</a></h4><span class="c">Data quality</span><p>Every data-quality result on a calendar. The weekly rhythm, the incidents, and the month-end test that cries wolf twelve times a year.</p><p><button class="go" data-zoom data-src="dq-calendar.html" data-hide="header.site-header,p.back,main&gt;p:has(&gt;a[href=&#x27;./&#x27;]:only-child)" data-name="A year of tests" data-num="01.1"><i></i>Go in</button></p></li><li><span class="n">05</span><h4><a href="schema-drift.html">Schema drift</a></h4><span class="c">Schema</span><p>Every table's columns over the year, and how long a new column takes to travel from Bronze to Gold.</p><p><button class="go" data-zoom data-src="schema-drift.html" data-hide="header.site-header,p.back,main&gt;p:has(&gt;a[href=&#x27;./&#x27;]:only-child)" data-name="Schema drift" data-num="01.1"><i></i>Go in</button></p></li></ul>
+</section>
+<section class="sec">
+  <div class="sh"><h3>The warehouse</h3><span>simulated, seeded</span></div>
+  <p class="nintro">A fictional distributor running a medallion warehouse of the kind you would build in Fabric: six source systems landing nightly, cleaned and conformed, then modeled into a star schema. A scheduler with four slots runs each table when its source has arrived and its dependencies have finished, so every wait, cascade and late night follows from the rules.</p><ul class="rooms notes"><li><span class="n">01</span><h4>Bronze</h4><p>Raw landings from ERP, CRM, warehouse management, web events, the general ledger and HR. Stored as-is, typed as the source sends it.</p></li><li><span class="n">02</span><h4>Silver</h4><p>Cleaned, typed and conformed. Customers merged across ERP and CRM; currency converted; sessions built from events.</p></li><li><span class="n">03</span><h4>Gold</h4><p>Seven dimensions and seven facts. The layer the business reads, and the one with a 06:00 deadline.</p></li><li><span class="n">04</span><h4>Six planted stories</h4><p>Black Friday, an unannounced ERP rename, a spring of orphaned CRM accounts, a fortnight of throttled capacity, a bot, and a CRM vendor that cut its API limits. Left for the pictures to find.</p></li></ul>
+</section>
+<section class="sec">
+  <div class="sh"><h3>Elsewhere in the lab</h3><span>Data viz</span></div>
+  <div class="shelves"><a href="/dataviz-lab/pressroom/"><b>Pressroom</b><span>Bento tiles in matte ink and paper grain.</span><i>Room 2 · report and system</i></a><a href="/dataviz-lab/#shelves"><b>Study shelves</b><span>Experimental, Few, Tufte and New.</span><i>4 shelves · 12 studies</i></a><a href="/dataviz-lab/"><b>Data Viz Lab</b><span>Back to the lab home.</span><i>All rooms</i></a></div>
+</section>
+<p class="stamp">Futobi Labs · Tanner Spaulding · synthetic warehouse, no client names, tables or numbers</p>
+</div>
 </main>
 
-<footer class="site-footer">
-  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
-</footer>
+<section class="room full" id="room" aria-hidden="true" role="dialog" aria-label="The nightly heartbeat">
+  <div class="rtop"><div class="wrap"><div class="k" style="color:var(--soft)"><b style="background:var(--ink);color:var(--paper)">01.1</b><span>Futobi Labs · Data Viz · The engineer&#x27;s eye · The nightly heartbeat</span></div>
+    <div class="side"><nav class="rbars" aria-label="Labs"><a href="/dataviz-lab/" aria-current="page" aria-label="Data Viz Lab"></a><a href="/datamodel-lab/" aria-label="Data Model Lab"></a><a href="/" aria-label="Futobi Labs"></a></nav><button class="pill" data-close>↑ Back out</button></div></div></div>
+  <iframe class="exp" title="The nightly heartbeat"></iframe>
+</section>
+
+<nav class="hud" aria-label="Labs">
+  <div class="num">01<small>/03</small></div>
+  <div class="nm"><b>Data Viz Lab</b><div class="bars"><a href="/dataviz-lab/" aria-current="page" aria-label="Data Viz Lab"></a><a href="/datamodel-lab/" aria-label="Data Model Lab"></a><a href="/" aria-label="Futobi Labs"></a></div></div>
+  <a class="home" href="https://github.com/tannerspaulding" rel="noopener" aria-label="Tanner Spaulding on GitHub">↗</a>
+</nav>
 
 <script>
-(function () {
-  const runs = WH.runs(), dq = WH.dq();
-  document.getElementById("src").textContent = "Source: " + WH.source;
-
-  // Headline facts, all computed.
-  const facts = [
-    [WH.tables.length, "tables in three layers"],
-    [WH.sources.length, "source systems"],
-    [runs.length, "nightly loads"],
-    [WH.clock(d3.median(runs, (r) => r.goldEnd)), "median Gold finish"],
-    [runs.filter((r) => !r.slaMet).length, "nights that missed 06:00 or broke"],
-    [d3.format(",")(d3.sum(dq, (d) => d.pass + d.warn + d.fail + d.notRun)), "test results"],
-  ];
-  d3.select("#facts").selectAll(".fact").data(facts).join("div").attr("class", "fact")
-    .html(([v, k]) => `<div class="v">${v}</div><div class="k">${k}</div>`);
-
-  function svg(id) {
-    const el = document.getElementById(id);
-    const w = el.clientWidth || 300, h = el.clientHeight || 160;
-    el.innerHTML = "";
-    return { s: d3.select(el).append("svg").attr("viewBox", `0 0 ${w} ${h}`), w, h };
-  }
-
-  // Heartbeat: Gold finish per night, SLA line.
-  (function () {
-    const { s, w, h } = svg("t-heart");
-    const x = d3.scaleLinear([0, runs.length - 1], [14, w - 14]);
-    const y = d3.scaleLinear([60, 540], [16, h - 16]);
-    s.append("line").attr("x1", 14).attr("x2", w - 14).attr("y1", y(WH.slaMinutes)).attr("y2", y(WH.slaMinutes))
-      .style("stroke", "var(--text-muted)").style("stroke-dasharray", "3 3");
-    s.selectAll("line.n").data(runs).join("line").attr("class", "n")
-      .attr("x1", (d, i) => x(i)).attr("x2", (d, i) => x(i)).attr("y1", y(60)).attr("y2", (d) => y(d.goldEnd))
-      .style("stroke", (d) => d.slaMet ? "var(--axis)" : "var(--critical)").style("stroke-width", 1);
-  })();
-
-  // Lineage: six lines converging through three zones.
-  (function () {
-    const { s, w, h } = svg("t-lineage");
-    const n = WH.sources.length, z = [w * 0.12, w * 0.42, w * 0.72, w * 0.9];
-    WH.sources.forEach((src, i) => {
-      const y0 = 22 + i * ((h - 44) / (n - 1)), y1 = h / 2 + (i - (n - 1) / 2) * 7;
-      const p = d3.path();
-      p.moveTo(z[0], y0); p.lineTo(z[1] - Math.abs(y0 - y1) * 0.5, y0);
-      p.lineTo(z[1] + Math.abs(y0 - y1) * 0.5, y1); p.lineTo(z[3], y1);
-      s.append("path").attr("d", p.toString()).style("fill", "none").style("stroke", WH.sourceColor(src.id)).style("stroke-width", 4).style("stroke-linecap", "round");
-      [z[0] + 18, z[1] - 30].forEach((cx) => s.append("circle").attr("cx", cx).attr("cy", y0).attr("r", 3.2)
-        .style("fill", "var(--surface-1)").style("stroke", WH.sourceColor(src.id)).style("stroke-width", 1.5));
-    });
-    [z[2], z[3]].forEach((cx) => s.append("rect").attr("x", cx - 6).attr("y", h / 2 - 24).attr("width", 12).attr("height", 48).attr("rx", 6)
-      .style("fill", "var(--surface-1)").style("stroke", "var(--text-primary)").style("stroke-width", 1.5));
-  })();
-
-  // Constellation: facts and the dims they share, on a dark panel.
-  (function () {
-    const el = document.getElementById("t-sky");
-    el.style.background = "#0d0d0d";
-    const { s, w, h } = svg("t-sky");
-    const facts = WH.tables.filter((t) => t.kind === "fact"), dims = WH.tables.filter((t) => t.kind === "dim");
-    const top = Math.ceil(facts.length / 2);
-    const fp = facts.map((t, i) => { const row = i < top ? 0 : 1, k = row ? i - top : i, n = row ? facts.length - top : top;
-      return { t, x: w * (0.12 + 0.76 * (n > 1 ? k / (n - 1) : 0.5)), y: row ? h * 0.78 : h * 0.24 }; });
-    const dp = dims.map((t) => {
-      const users = fp.filter((f) => f.t.deps.includes(t.id));
-      return { t, x: d3.mean(users, (u) => u.x) + (t.id.length % 5 - 2) * 9, y: d3.mean(users, (u) => u.y) + (t.id.length % 3 - 1) * 12 };
-    });
-    fp.forEach((f) => dp.filter((d) => f.t.deps.includes(d.t.id)).forEach((d) =>
-      s.append("line").attr("x1", f.x).attr("y1", f.y).attr("x2", d.x).attr("y2", d.y).style("stroke", "#c3c2b7").style("stroke-opacity", 0.35)));
-    const rr = d3.scaleSqrt([0, Math.log10(5e7)], [0.8, 4.6]);
-    const rnd = Lab.rng(3);
-    for (let i = 0; i < 60; i++) s.append("circle").attr("cx", rnd() * w).attr("cy", rnd() * h).attr("r", 0.6).style("fill", "#898781");
-    dp.concat(fp).forEach((p) => s.append("circle").attr("cx", p.x).attr("cy", p.y).attr("r", rr(Math.log10(p.t.size))).style("fill", "#f0efec"));
-  })();
-
-  // DQ calendar: weeks x weekdays, sequential by issues.
-  (function () {
-    const { s, w, h } = svg("t-dq");
-    const weeks = Math.ceil(dq.length / 7) + 1, cell = Math.min((w - 20) / weeks, (h - 20) / 7);
-    const start = d3.utcWeek.floor(dq[0].day);
-    const col = d3.scaleThreshold([1, 3, 6, 10], ["var(--surface-2)", "var(--seq-200)", "var(--seq-400)", "var(--seq-500)", "var(--seq-700)"]);
-    const x0 = (w - weeks * cell) / 2, y0 = (h - 7 * cell) / 2;
-    s.selectAll("rect").data(dq).join("rect")
-      .attr("x", (d) => x0 + d3.utcWeek.count(start, d.day) * cell).attr("y", (d) => y0 + d.day.getUTCDay() * cell)
-      .attr("width", cell - 1).attr("height", cell - 1).style("fill", (d) => col(d.warn + d.fail));
-  })();
-
-  // Drift: one lane per changed table, step lines with event ticks.
-  (function () {
-    const { s, w, h } = svg("t-drift");
-    const changed = [...new Set(WH.schemaEvents.map((e) => e.table))];
-    const x = d3.scaleUtc([WH.parse(WH.first), WH.parse(WH.last)], [14, w - 14]);
-    const lane = (h - 20) / changed.length;
-    changed.forEach((id, i) => {
-      const y = 10 + i * lane + lane / 2;
-      s.append("line").attr("x1", 14).attr("x2", w - 14).attr("y1", y).attr("y2", y).style("stroke", "var(--grid)");
-      WH.schemaEvents.filter((e) => e.table === id).forEach((e) => s.append("rect")
-        .attr("x", x(e.day) - 1).attr("y", y - lane * 0.4).attr("width", 2.5).attr("height", lane * 0.8)
-        .style("fill", e.change === "add" ? "var(--div-pos)" : e.change === "drop" ? "var(--div-neg)" : "var(--text-secondary)"));
-    });
-  })();
+/* Test Print shell: zoom through a dot into a room, and back out */
+(function(){
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const room=document.getElementById('room');let from=null;
+function openRoom(el){
+  const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+  const R=Math.hypot(Math.max(x,innerWidth-x),Math.max(y,innerHeight-y))+4;
+  room.style.setProperty('--x',x+'px');room.style.setProperty('--y',y+'px');room.style.setProperty('--r',R+'px');
+  from=el;room.classList.remove('shut');room.scrollTop=0;void room.offsetWidth;room.classList.add('open');
+  document.documentElement.style.overflow='hidden';room.setAttribute('aria-hidden','false');
+  setTimeout(()=>{const f=room.querySelector('[data-close]');if(f)f.focus({preventScroll:true});if(window.onRoom)window.onRoom();},reduce?0:420);
+}
+function closeRoom(){
+  if(!room.classList.contains('open'))return;
+  room.classList.add('shut');room.classList.remove('open');document.documentElement.style.overflow='';room.setAttribute('aria-hidden','true');
+  setTimeout(()=>room.classList.remove('shut'),reduce?0:780);if(from)from.focus({preventScroll:true});
+}
+document.addEventListener('click',e=>{const s=e.target.closest('[data-zoom]');if(s){e.preventDefault();openRoom(s.querySelector('[data-origin]')||(s.matches('.go')?s.querySelector('i'):null)||s);return;}
+  if(e.target.closest('[data-close]')){e.preventDefault();closeRoom();}});
+addEventListener('keydown',e=>{if(e.key==='Escape')closeRoom();});
+/* shared tooltip */
+const tip=document.createElement('div');tip.className='tip';tip.setAttribute('role','status');document.body.appendChild(tip);
+window.showTip=(html,x,y)=>{tip.innerHTML=html;tip.classList.add('on');const b=tip.getBoundingClientRect();let px=x+14,py=y-b.height-12;if(px+b.width>innerWidth-8)px=x-b.width-14;if(py<8)py=y+16;tip.style.left=Math.max(8,px)+'px';tip.style.top=py+'px';};
+window.hideTip=()=>tip.classList.remove('on');
 })();
+
+/* The bridge: live previews of the real experiences, and the room they grow into. */
+(function(){
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const room=document.getElementById('room'),exp=room&&room.querySelector('iframe.exp');
+/* Hide only the experience's own lab navigation, since the Test Print frame replaces it.
+   Everything else inside the experience is left exactly as it is. */
+function prep(fr,hide,forRoom){
+  let d;try{d=fr.contentDocument}catch(e){return null}
+  if(!d||!d.documentElement)return null;
+  if(hide&&!d.getElementById('bridge-hide')){const s=d.createElement('style');s.id='bridge-hide';s.textContent=hide+'{display:none!important}';(d.head||d.documentElement).appendChild(s)}
+  if(forRoom)d.addEventListener('keydown',e=>{if(e.key==='Escape')document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))});
+  return d;
+}
+document.querySelectorAll('.win').forEach(win=>{
+  win.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();win.click()}});
+  const view=win.querySelector('.win-view'),fr=view.querySelector('iframe'),src=win.dataset.src,hide=win.dataset.hide||'';
+  let raf=0,dir=1,on=false,started=false,doc=null,y=0;
+  function fit(){const w=view.clientWidth,h=view.clientHeight,vw=w<600?760:1280,s=w/vw;
+    fr.style.width=vw+'px';fr.style.height=Math.ceil(h/s)+'px';fr.style.transform='scale('+s+')';}
+  fit();addEventListener('resize',fit);
+  /* a slow drift down the page and back, so the preview shows more than its first screen */
+  function drift(){raf=0;if(!on||!doc)return;const se=doc.scrollingElement||doc.documentElement,max=Math.min(se.scrollHeight-fr.contentWindow.innerHeight,1600);
+    if(max>20){y+=dir*.45;if(y>=max){y=max;dir=-1}if(y<=0){y=0;dir=1}se.scrollTop=y}
+    raf=requestAnimationFrame(drift);}
+  fr.addEventListener('load',()=>{doc=prep(fr,hide,false);setTimeout(()=>{fr.classList.add('ready');if(!reduce&&on&&!raf)raf=requestAnimationFrame(drift)},doc?900:300)});
+  function start(){if(started)return;started=true;fr.src=src;
+    if(exp&&!exp.src){exp.dataset.hide=hide;exp.dataset.base=src;exp.src=src}}
+  if('IntersectionObserver' in window){new IntersectionObserver(es=>es.forEach(e=>{on=e.isIntersecting;if(on){start();if(!reduce&&doc&&!raf)setTimeout(()=>{if(on&&!raf)raf=requestAnimationFrame(drift)},400)}else if(raf){cancelAnimationFrame(raf);raf=0}}),{rootMargin:'200px'}).observe(win)}
+  else start();
+});
+if(exp){exp.addEventListener('load',()=>prep(exp,exp.dataset.hide,true));
+  /* Every way in opens the same room. A button can name its own experience with data-src,
+     and a room inside it with data-room; anything else opens the featured window's experience. */
+  const rk=room.querySelector('.rtop .k'),rb=rk&&rk.querySelector('b'),rs=rk&&rk.querySelector('span');
+  const def={num:rb?rb.textContent:'',txt:rs?rs.textContent:'',lab:room.getAttribute('aria-label')||'',tt:exp.title};
+  function label(el){const n=el&&el.dataset.name;
+    if(rb)rb.textContent=n?el.dataset.num||def.num:def.num;
+    if(rs)rs.textContent=n?def.txt.replace(/[^·]*$/,' '+n):def.txt;
+    room.setAttribute('aria-label',n||def.lab);exp.title=n||def.tt;}
+  exp.addEventListener('load',()=>{exp.style.visibility=''});
+  document.addEventListener('click',e=>{const z=e.target.closest('[data-zoom]');if(!z)return;
+    const t=z.dataset.src?z:document.querySelector('.win');if(!t)return;
+    const src=t.dataset.src,rm=z.dataset.room||'';label(z.dataset.src?z:null);
+    if(exp.src&&exp.dataset.base===src){if(rm){try{exp.contentWindow.showRoom(rm)}catch(_){}}return}
+    exp.dataset.hide=t.dataset.hide||'';exp.dataset.base=src;exp.style.visibility='hidden';exp.src=src+(rm?'#'+rm:'');},true);
+  window.onRoom=()=>{try{exp.contentWindow.focus()}catch(e){}};}
+})();
+
 </script>
-</body>
-</html>
+</body></html>

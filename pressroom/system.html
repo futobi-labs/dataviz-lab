@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pressroom · Data Viz Lab</title>
+<meta name="description" content="Pressroom: a tactile palette and texture system for report pages. Matte color blocks, paper tooth, riso speckle, halftone and letterpress numerals, in light and dark, with a Power BI theme.">
+<link rel="stylesheet" href="../assets/css/lab.css">
+<link rel="stylesheet" href="pressroom.css">
+<script src="../assets/vendor/d3-7.9.0.min.js"></script>
+<script src="../assets/js/lab.js"></script>
+<script src="layout.js"></script>
+<style>
+  .grid { display: grid; gap: 10px; }
+  .blocks { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .inks { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  .tex { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .swatch { min-height: 128px; justify-content: space-between; }
+  .swatch .nm { font: 600 1.05rem/1.1 var(--pr-display); margin: 0; }
+  .swatch .meta { font: 0.76rem/1.4 var(--mono); margin: 0; }
+  .ink { border-radius: 8px; overflow: hidden; background: var(--pr-paper); box-shadow: var(--pr-lift); }
+  .ink .chip { height: 54px; }
+  .ink p { margin: 0; padding: 6px 8px; font: 0.74rem/1.35 var(--sans); color: var(--pr-ink-2); }
+  .ink p b { color: var(--pr-ink); font-weight: 600; }
+  .ink .meta { font-family: var(--mono); }
+  .spec { min-height: 230px; }
+  .spec .sample { flex: 1 1 auto; min-height: 110px; border-radius: 6px; margin: 10px 0; position: relative; overflow: hidden; }
+  .spec h3 { margin: 0; font: 600 1.05rem var(--pr-display); color: var(--on); }
+  .spec p { font-size: 0.84rem; margin: 0.25rem 0 0; color: var(--on-2); max-width: none; }
+  .spec p b { color: var(--on); }
+  .s-tooth { background: var(--pr-paper); }
+  .s-tooth::before { content: ""; position: absolute; inset: 0; background-image: var(--pr-tex-grain); background-size: 220px; mix-blend-mode: var(--pr-grain-blend); opacity: calc(var(--pr-grain-op) * 2.2); }
+  .s-speck { background: var(--pr-persimmon); }
+  .s-speck::before { content: ""; position: absolute; inset: 0; background-image: var(--pr-tex-speck); background-size: 260px; mix-blend-mode: multiply; opacity: 0.6; }
+  .s-half { color: var(--pr-harbor); background:
+    radial-gradient(circle, currentColor 2.1px, transparent 2.5px) 0 0 / 7px 7px; }
+  .s-half span { position: absolute; inset: 0; background: linear-gradient(90deg, var(--pr-paper), transparent 70%); }
+  .s-press { display: grid; place-items: center; background: var(--pr-marigold); color: var(--pr-marigold-on); }
+  .s-press .pr-big { font-size: 4.2rem; }
+  .mini { margin: 1.25rem 0; text-decoration: none; display: block; }
+  .mini .pr-canvas { padding: 8px; }
+  .mini .bento { display: grid; gap: 6px; grid-template-columns: repeat(12, 1fr); grid-template-rows: repeat(6, 1fr); aspect-ratio: 16 / 9; }
+  .mini .pr-tile { padding: 8px 10px; border-radius: 7px; }
+  .mini .pr-tile .pr-label { font-size: 0.6rem; }
+  .mini:hover .pr-canvas { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+  .mini-cta { font-weight: 600; margin-top: 8px; }
+  .mini-cta::after { content: " \2192"; }
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px 32px; }
+  .rules p { margin: 0.3rem 0; font-size: 0.95rem; color: var(--text-secondary); }
+  .rules strong { color: var(--text-primary); font-weight: 600; }
+  @media (max-width: 600px) { .mini .pr-tile .pr-label { display: none; } }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="../">Data Viz Lab</a>
+  <nav>
+    <a href="../engineer/">Engineer's eye</a>
+    <a href="../pressroom/" aria-current="true">Pressroom</a>
+    <a href="../experimental/">Experimental</a>
+    <a href="../few/">Stephen Few</a>
+    <a href="../tufte/">Tufte</a>
+    <a href="../new/">New</a>
+  </nav>
+  <button class="theme-toggle" type="button">Theme: auto</button>
+</header>
+
+<main class="pr" style="background:none">
+  <p class="kicker">Palette and texture system</p>
+  <h1>Pressroom</h1>
+  <p class="lede">The layout has a name already: a bento grid with color blocking, the Swiss and Bauhaus habit of giving every idea its own rectangle of flat color. Pressroom is what goes on top. It treats a report page as something printed on uncoated card stock, so the color sits in matte blocks, the paper has tooth, the ink speckles where the drum skipped, "less" is printed as halftone, and the one number that matters is pressed into the page.</p>
+  <p class="lede">It is built for a working report rather than a poster: every texture has a job, every color is checked for contrast, and all of it has a route into Power BI.</p>
+
+  <a class="mini" href="report.html" aria-label="Open the report page">
+    <div class="pr-canvas"><div class="bento" id="mini"></div></div>
+    <p class="mini-cta">Open the report page: a year of nightly loads, with Power BI notes for every tile</p>
+  </a>
+
+  <h2>Blocks</h2>
+  <p>Eight matte fills for tiles. Each block names its own text color and everything on it, marks included, is printed in that one ink. The ratio is measured live against the block in the current theme; flip the theme toggle to see the dark set, which is the same inks pulled on black stock rather than an inversion.</p>
+  <div class="grid blocks" id="blocks"></div>
+
+  <h2>Data inks</h2>
+  <p>Eight colors for categorical marks, used only on paper tiles and always in this order. Validated with a color-vision simulation on the paper color: every adjacent pair stays apart for protan and deutan viewers (worst ΔE 9.5 light, 8.9 dark), all clear 3:1 against paper, and the dark set is its own steps, not a flip.</p>
+  <div class="grid inks" id="inks"></div>
+
+  <h2>Textures</h2>
+  <p>Four, each with a job. None of them carry data on their own, except halftone, which is allowed to mean "the rest".</p>
+  <div class="grid tex">
+    <section class="pr-tile paper spec">
+      <h3>Paper tooth</h3>
+      <div class="sample s-tooth" aria-hidden="true"></div>
+      <p><b>Here:</b> fractal noise from an inline SVG, multiplied over every tile and the canvas at about 20%.</p>
+      <p><b>Power BI:</b> baked into the canvas background image (two JPEGs in the repo, 2560 by 1440).</p>
+    </section>
+    <section class="pr-tile paper spec">
+      <h3>Riso speckle</h3>
+      <div class="sample s-speck" aria-hidden="true"></div>
+      <p><b>Here:</b> sparse, hard-edged dots on ink blocks only, so paper tiles stay clean behind charts.</p>
+      <p><b>Power BI:</b> in the same canvas image. Never on a chart's plot area.</p>
+    </section>
+    <section class="pr-tile paper spec">
+      <h3>Halftone</h3>
+      <div class="sample s-half" aria-hidden="true"><span></span></div>
+      <p><b>Here:</b> the off-state of a cross-highlight, and a mark in its own right where dot size is the value.</p>
+      <p><b>Power BI:</b> Deneb point marks, or an SVG measure in a table or matrix.</p>
+    </section>
+    <section class="pr-tile paper spec">
+      <h3>Letterpress numerals</h3>
+      <div class="sample s-press" aria-hidden="true"><span class="pr-big">342</span></div>
+      <p><b>Here:</b> a light lip under the glyph and a shadow over it, one pixel each. Only the hero number gets it.</p>
+      <p><b>Power BI:</b> an SVG measure in an Image visual; native text can't cast a shadow.</p>
+    </section>
+  </div>
+
+  <h2>Rules</h2>
+  <div class="rules">
+    <p><strong>One ink per block.</strong> Charts on a colored block are monochrome in the block's text color. Categorical color lives on paper.</p>
+    <p><strong>Text at full strength.</strong> No faded secondary text on blocks; hierarchy comes from size and weight. Every pairing clears 4.5:1 with the grain on.</p>
+    <p><strong>Selection never repaints.</strong> What you didn't pick turns to halftone or fades. Colors follow the entity, not the filter.</p>
+    <p><strong>Status is its own thing.</strong> Late or broken is shown by shape (a raised peg, not a red one) or by the reserved status colors with a label.</p>
+    <p><strong>Texture stays off the data.</strong> Tooth and speckle sit under the marks, never inside a plot's ink.</p>
+    <p><strong>A page is 1280 by 720.</strong> Twelve columns, six rows, 16px margin, 12px gutters, so the HTML and the Power BI page share a layout.</p>
+  </div>
+
+  <h2>Files</h2>
+  <p><a href="pressroom-light.json">pressroom-light.json</a> and <a href="pressroom-dark.json">pressroom-dark.json</a> are Power BI themes: data colors in order, structural colors, sentiment and diverging colors, text classes, transparent visual containers, page and wallpaper color, and paper gaps between stacked segments. <a href="canvas-light.jpg">canvas-light.jpg</a> and <a href="canvas-dark.jpg">canvas-dark.jpg</a> are the textured page backgrounds for the report layout. Both are generated by scripts in <code>tools/</code>, so a new layout is a rerun, not a redraw.</p>
+  <p class="source">Colors, textures and layout are original to this lab. The data on the report page is synthetic.</p>
+</main>
+
+<footer class="site-footer">
+  Tanner Spaulding · <a href="https://github.com/tannerspaulding/dataviz-lab">Source on GitHub</a> · D3 v7.9.0 (ISC license)
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const BLOCKS = [
+    ["paper", "Paper", "Charts with categorical color"],
+    ["stone", "Stone", "Titles, slicers, quiet tiles"],
+    ["harbor", "Harbor", "The headline number"],
+    ["persimmon", "Persimmon", "Time and urgency"],
+    ["marigold", "Marigold", "The calendar, the year"],
+    ["moss", "Moss", "Quality and tests"],
+    ["patina", "Patina", "Context, incidents, notes"],
+    ["blush", "Blush", "A soft second accent"],
+  ];
+  const INKS = ["Harbor", "Persimmon", "Patina", "Ochre", "Rose", "Moss", "Lilac", "Clay"];
+
+  // live contrast from computed colors
+  const probe = document.createElement("div");
+  document.querySelector("main.pr").appendChild(probe);
+  function rgbOf(cssVar) {
+    probe.style.color = `var(${cssVar})`;
+    const m = (getComputedStyle(probe).color.match(/[\d.]+/g) || [0, 0, 0]).map(Number);
+    return m.slice(0, 3);
+  }
+  const hex = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+  const lum = (c) => { const [r, g, b] = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+
+  function draw() {
+    d3.select("#blocks").selectAll(".pr-tile").data(BLOCKS).join("div")
+      .attr("class", ([k]) => `pr-tile ${k} ${k === "paper" ? "" : "block"} swatch`)
+      .html(([k, name, role]) => {
+        const bg = rgbOf(k === "paper" ? "--pr-paper" : `--pr-${k}`), on = rgbOf(k === "paper" ? "--pr-ink" : `--pr-${k}-on`);
+        return `<p class="pr-label">${role}</p><div><p class="nm">${name}</p><p class="meta">${hex(bg)} · text ${ratio(bg, on).toFixed(1)}:1</p></div>`;
+      });
+    const paper = rgbOf("--pr-paper");
+    d3.select("#inks").selectAll(".ink").data(INKS).join("div").attr("class", "ink")
+      .html((name, i) => { const c = rgbOf(`--pr-s${i + 1}`); return `<div class="chip" style="background:var(--pr-s${i + 1})"></div><p><b>${i + 1} ${name}</b><br><span class="meta">${hex(c)} · ${ratio(c, paper).toFixed(1)}:1</span></p>`; });
+  }
+  draw();
+  Lab.onTheme(draw);
+
+  // mini bento, from the shared layout
+  d3.select("#mini").selectAll(".pr-tile").data(PR.tiles).join("div")
+    .attr("class", (t) => `pr-tile ${t.block} ${t.block === "paper" ? "" : "block"}`)
+    .style("grid-area", (t) => `${t.area[1]} / ${t.area[0]} / span ${t.area[3]} / span ${t.area[2]}`)
+    .html((t) => `<p class="pr-label">${t.n} · ${t.name}</p>`);
+})();
+</script>
+</body>
+</html>
