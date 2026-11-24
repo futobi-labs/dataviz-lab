@@ -31,7 +31,7 @@
   /* Column spec: "name" inherits from the same-named column of the first dep that has it.
      "name<-a,b.c" lists explicit upstream columns; a bare name resolves to the first dep that has it. */
   const T = [
-    // ---------------- Bronze: raw, append-only landings ----------------
+    // ---------------- Bronze: raw landings, stored as-is ----------------
     ["brz_erp_orders", "bronze", "erp", [], 2.4e6, 2600, 4,
       "order_id order_date customer_id ship_to_id sales_rep_id channel_code status currency order_total _ingested_at"],
     ["brz_erp_order_lines", "bronze", "erp", [], 9.1e6, 9800, 7,

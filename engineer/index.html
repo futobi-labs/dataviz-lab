@@ -83,7 +83,7 @@
   <h2>The warehouse</h2>
   <p>A fictional distributor running a medallion warehouse of the kind you would build in Fabric: six source systems landing nightly, cleaned and conformed, then modeled into a star schema. The year is simulated, not drawn by hand. A scheduler with four slots runs each table when its source has arrived and its dependencies have finished, so every wait, cascade and late night follows from the rules.</p>
   <div class="layers">
-    <p><strong>Bronze.</strong> Raw landings from ERP, CRM, warehouse management, web events, the general ledger and HR. Append-only, typed as the source sends it.</p>
+    <p><strong>Bronze.</strong> Raw landings from ERP, CRM, warehouse management, web events, the general ledger and HR. Stored as-is, typed as the source sends it.</p>
     <p><strong>Silver.</strong> Cleaned, typed and conformed. Customers merged across ERP and CRM; currency converted; sessions built from events.</p>
     <p><strong>Gold.</strong> Seven dimensions and seven facts. The layer the business reads, and the one with a 06:00 deadline.</p>
   </div>
