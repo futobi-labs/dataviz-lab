@@ -1,7 +1,7 @@
 # Data Viz Lab: notes for Claude
 
 Static GitHub Pages site. No build, no bundler, no framework. Pushing to `main` publishes
-(Pages deploys the branch root; `.nojekyll` disables Jekyll). Live: https://tannerspaulding.github.io/dataviz-lab/
+(Pages deploys the branch root; `.nojekyll` disables Jekyll). Live: https://labs.tannerspaulding.com/dataviz-lab/
 
 ## Layout
 - `index.html`: home. The featured room is `engineer/`; the four studies follow as cards with live thumbnails.

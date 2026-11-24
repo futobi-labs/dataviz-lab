@@ -1,7 +1,7 @@
 # Data Viz Lab
 
 An exploratory data visualization notebook, published at
-**https://tannerspaulding.github.io/dataviz-lab/**.
+**https://labs.tannerspaulding.com/dataviz-lab/**.
 
 A main room, the Pressroom, and four studies:
 
